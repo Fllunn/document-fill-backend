@@ -1,0 +1,56 @@
+  <h3>DocumentFill: заказ принят</h3>
+
+  <div class="heading">
+    <b>
+      О пользователе
+    </b>
+  </div>
+  <div class="info">{{order.user.name}}</div>
+  <div class="info">{{order.user.phone}}</div>
+  <div class="info">{{order.user.address}}</div>
+  <div class="heading">
+    <b>
+      Способ оплаты:
+    </b>
+  </div>
+  <div class="comment">{{order.user.paymentType}}</div>
+
+  <div class="heading">
+    <b>
+      Корзина
+    </b>
+  </div>
+  {{#each order.items}}
+  <p class="cart-item">{{this.menuItem}} {{this.price}}₽ x {{this.count}}</p>
+  {{/each}}
+
+  <div class="heading">
+    <b>
+      Комментарий к заказу:
+    </b>
+  </div>
+  <div class="comment">{{order.user.comment}}</div>
+
+
+<style>
+  body {
+    color: black !important;
+    font-size: 16px;
+  }
+
+  .cart-item {
+    margin: 4px 0 4px 0;
+  }
+
+  .info {
+    margin: 4px 0 4px 0;
+  }
+
+  .comment {
+    margin-top: 4px;
+  }
+
+  .heading {
+    margin-top: 10px;
+  }
+</style>
