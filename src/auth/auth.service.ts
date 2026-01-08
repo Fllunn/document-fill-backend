@@ -32,7 +32,6 @@ export class AuthService {
 
     const created_user: UserDocument = await this.UserModel.create({
       name: user.name,
-      surname: user.surname,
       email: user.email,
       password,
       roles: ['user'],

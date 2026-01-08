@@ -24,7 +24,7 @@ class YandexCloud {
         Bucket: process.env.YC_BUCKET_NAME, // название созданного bucket
         Key: `${path}/${fileName}`, // путь и название файла в облаке (path без слэша впереди)
         Body: file.buffer, // сам файл
-        ContentType: 'text/plain', // тип файла
+        ContentType: file?.mimetype || 'application/octet-stream', // тип файла
       }
 
       const aws = this.aws
