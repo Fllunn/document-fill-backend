@@ -89,6 +89,7 @@ export class TemplatesController {
   @UseGuards(AuthGuard)
   @Put('edit')
   async update(
+    @Req() req: RequestWithUser,
     @Body('_id') _id?: string,
     @Body('updates') updates?: ITemplatesToEdit,
   ) {
@@ -101,7 +102,12 @@ export class TemplatesController {
     }
 
     const editedTemplate: TemplatesDocument =
-      await this.TemplatesService.editById(updates, _id);
+      await this.TemplatesService.editById(
+        updates,
+        _id,
+        req.user._id,
+        req.user.roles,
+      );
 
     return {
       template: editedTemplate,

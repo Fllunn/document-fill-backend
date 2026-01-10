@@ -77,7 +77,7 @@ export class TemplatesService {
 
     // Обычный пользователь может удалить только свой шаблон
     if (!userRoles || !userRoles.includes('admin')) {
-      if (template.userId !== userId) {
+      if (template.userId?.toString() !== userId.toString()) {
         throw ApiError.AccessDenied();
       }
     }
@@ -92,19 +92,28 @@ export class TemplatesService {
     return template;
   }
 
-  async editById(
-    updates: ITemplatesToEdit,
-    _id: string,
-  ): Promise<TemplatesDocument> {
-    const template = await this.TemplatesModel.findByIdAndUpdate(
+  async editById(updates: ITemplatesToEdit, _id: string, userId: string, userRoles: string[]): Promise<TemplatesDocument> {
+    const template = await this.TemplatesModel.findById(_id);
+    if (!template) {
+      throw ApiError.BadRequest('Шаблон не найден');
+    }
+
+    // Обычный пользователь может редактировать только свой шаблон
+    if (!userRoles || !userRoles.includes('admin')) {
+      if (template.userId?.toString() !== userId.toString()) {
+        throw ApiError.AccessDenied();
+      }
+    }
+
+    const updatedTemplate = await this.TemplatesModel.findByIdAndUpdate(
       _id,
       updates,
       { new: true },
     );
-    if (!template) {
-      throw ApiError.BadRequest('Шаблон не найден');
+    if (!updatedTemplate) {
+      throw ApiError.BadRequest('Ошибка при обновлении шаблона');
     }
-    return template;
+    return updatedTemplate;
   }
 
   async getAllTemplates(userId: string, userRoles: string[],): Promise<TemplatesDocument[]> {
