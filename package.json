@@ -33,6 +33,7 @@
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
+    "easy-template-x": "^7.0.3",
     "mongoose": "^9.1.1",
     "mongoose-autopopulate": "^1.2.1",
     "multer": "^2.0.2",
