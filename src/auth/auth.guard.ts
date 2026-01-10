@@ -24,6 +24,18 @@ export class AuthGuard implements CanActivate {
     let userData = this.tokenService.validateAccessToken(accessToken);
 
     if (userData?._id) {
+      // достаём актуального пользователя с ролями из БД
+      const dbUser = await this.UserModel.findById(userData._id).lean();
+      if (!dbUser) throw ApiError.UnauthorizedError();
+
+      request.user = {
+        _id: dbUser._id,
+        name: dbUser.name,
+        email: dbUser.email,
+        password: dbUser.password,
+        roles: dbUser.roles || [],
+        avatars: dbUser.avatars || [],
+      };
       return true
     }
     throw ApiError.UnauthorizedError();
