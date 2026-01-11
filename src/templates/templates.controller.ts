@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 
 import { TemplatesService } from './templates.service';
+import { ITemplate } from './interfaces/templates.interface';
 import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 import { AuthGuard } from 'src/auth/auth.guard';
 

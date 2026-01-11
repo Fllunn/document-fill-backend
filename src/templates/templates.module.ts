@@ -6,6 +6,9 @@ import { TemplatesController } from './templates.controller';
 import { TemplatesService } from './templates.service';
 import { Template, TemplateSchema } from './schemas/templates.schema';
 import { RolesModule } from 'src/roles/roles.module';
+import { TokenModule } from 'src/token/token.module';
+import { UserClass, UserSchema } from 'src/user/schemas/user.schema';
+import { AuthGuard } from 'src/auth/auth.guard';
 
 @Module({
   imports: [
@@ -14,11 +17,16 @@ import { RolesModule } from 'src/roles/roles.module';
         name: Template.name,
         schema: TemplateSchema,
         collection: 'templates'
+      },
+      {
+        name: 'User',
+        schema: UserSchema
       }
     ]),
-    RolesModule
+    RolesModule,
+    TokenModule
   ],
   controllers: [TemplatesController],
-  providers: [TemplatesService],
+  providers: [TemplatesService, AuthGuard],
 })
 export class TemplatesModule {}

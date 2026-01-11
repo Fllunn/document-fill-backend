@@ -2,6 +2,7 @@ import { Model } from 'mongoose';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Template } from './schemas/templates.schema';
+import { ITemplate } from './interfaces/templates.interface';
 import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 import ApiError from 'src/exceptions/errors/api-error';
 import { RolesService } from 'src/roles/roles.service';

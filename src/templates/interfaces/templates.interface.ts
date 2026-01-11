@@ -1,4 +1,4 @@
-interface ITemplate {
+export interface ITemplate {
   "name": string,                     // Название шаблона
   "filePath": string,                 // Путь к файлу в хранилище
   "variables": string[],              // Список переменных
