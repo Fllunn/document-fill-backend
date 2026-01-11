@@ -31,6 +31,8 @@
     "@types/multer": "^2.0.0",
     "aws-sdk": "^2.1693.0",
     "bcryptjs": "^3.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
     "easy-template-x": "^7.0.3",

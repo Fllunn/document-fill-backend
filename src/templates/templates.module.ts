@@ -1,12 +1,21 @@
+// DOCS: https://docs.nestjs.com/techniques/mongodb
+
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { TemplatesController } from './templates.controller';
 import { TemplatesService } from './templates.service';
-import TemplatesModel from './models/templates.model';
-import { TokenModule } from 'src/token/token.module';
-import UserModel from 'src/user/models/user.model';
+import { Template, TemplateSchema } from './schemas/templates.schema';
 
 @Module({
-  imports: [TemplatesModel, TokenModule, UserModel],
+  imports: [
+    MongooseModule.forFeature([
+      {
+        name: Template.name,
+        schema: TemplateSchema,
+        collection: 'templates'
+      }
+    ])
+  ],
   controllers: [TemplatesController],
   providers: [TemplatesService],
 })

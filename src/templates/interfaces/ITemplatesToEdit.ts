@@ -1,4 +1,4 @@
-export interface ITemplatesToEdit {
+export interface ITemplateToEdit {
   name?: string;
   filePath?: string;
   variables?: string[];
