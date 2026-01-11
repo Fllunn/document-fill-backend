@@ -7,6 +7,8 @@ import { DocumentsService } from './documents.service';
 import { Document, DocumentSchema } from './schemas/documents.schema';
 import { Template, TemplateSchema } from 'src/templates/schemas/templates.schema';
 import { RolesModule } from 'src/roles/roles.module';
+import { TokenModule } from 'src/token/token.module';
+import UserModel from 'src/user/models/user.model';
 
 @Module({
   imports: [
@@ -22,7 +24,9 @@ import { RolesModule } from 'src/roles/roles.module';
         collection: 'templates'
       }
     ]),
-    RolesModule
+    RolesModule,
+    TokenModule,
+    UserModel
   ],
   controllers: [DocumentsController],
   providers: [DocumentsService],

@@ -3,6 +3,7 @@ dotenv.config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 // Load environment variables at the very beginning
 
@@ -18,6 +19,20 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter())
 
   app.use(cookieParser())
+
+  // Swagger documentation - only in development
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('DocumentFill API')
+      .setDescription('Документация')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .addCookieAuth('refreshToken')
+      .build();
+    
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   await app.listen(process.env.PORT)
 }

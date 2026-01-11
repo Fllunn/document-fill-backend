@@ -13,6 +13,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { MongooseModule } from '@nestjs/mongoose';
 import { TemplatesModule } from './templates/templates.module';
+import { DocumentsModule } from './documents/documents.module';
 
 
 @Module({
@@ -34,7 +35,8 @@ import { TemplatesModule } from './templates/templates.module';
     UserModule,
     RolesModule,
     AdminModule,
-    TemplatesModule
+    TemplatesModule,
+    DocumentsModule
   ],
   controllers: [AppController],
   providers: [AppService],
