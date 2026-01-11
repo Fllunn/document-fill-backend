@@ -11,24 +11,31 @@ import {
   Patch,
   Delete,
   Param,
+  UseInterceptors,
+  UseFilters,
 } from '@nestjs/common';
 
 import { TemplatesService } from './templates.service';
 import { ITemplate } from './interfaces/templates.interface';
 import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UploadedFile } from '@nestjs/common/decorators';
+import ApiError from 'src/exceptions/errors/api-error';
+import { MulterExceptionFilter } from 'src/exceptions/filters/multer-exception.filter';
+
 
 @Controller('templates')
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
-  // POST /templates - Create a new template
-  @Post()
-  @UseGuards(AuthGuard) // только авторизованные
-  create(@Body() template: ITemplate, @Req() request: any) {
-    // request.user содержит информацию о текущем пользователе из JWT
-    return this.templatesService.create(template, request.user);
-  }
+  // // POST /templates - Create a new template
+  // @Post()
+  // @UseGuards(AuthGuard) // только авторизованные
+  // create(@Body() template: ITemplate, @Req() request: any) {
+  //   // request.user содержит информацию о текущем пользователе из JWT
+  //   return this.templatesService.create(template, request.user);
+  // }
   
   // GET /templates - Get all templates
   @Get()
@@ -63,5 +70,31 @@ export class TemplatesController {
   @UseGuards(AuthGuard) // только авторизованные
   getTemplateVariables(@Param('id') id: string, @Req() request: any) {
     return this.templatesService.getTemplateVariables(id, request.user);
+  }
+
+  @Post()
+  @UseGuards(AuthGuard) // только авторизованные
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 512 * 1024 }, // 512 KB
+      fileFilter: (req, file, cb) => {
+        if (
+          file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // .docx
+          file.mimetype === 'application/msword' // .doc
+        ) {
+          cb(null, true);
+        } else {
+          cb(new Error('INVALID_FILE_TYPE'), false);
+        }
+      },
+    }),
+  )
+  @UseFilters(MulterExceptionFilter)
+  createFromFile(@UploadedFile() file: Express.Multer.File, @Req() request: any) {
+    if (!file) {
+      throw ApiError.BadRequest('Файл не был загружен');
+    }
+
+    return this.templatesService.createFromFile(file, request.user);
   }
 }

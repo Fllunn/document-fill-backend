@@ -138,4 +138,12 @@ export class TemplatesService {
 
     return template.variables;
   }
+
+  async createFromFile(file: Express.Multer.File, user: any): Promise<Template> {
+    if (!file || !file.buffer) {
+      throw ApiError.BadRequest('Файл не был загружен');
+    }
+
+    
+  }
 }
