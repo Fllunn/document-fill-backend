@@ -1,0 +1,34 @@
+### Переменные
+@baseUrl = http://localhost:3033
+
+### ========================================
+### TEMPLATES
+### ========================================
+
+### GET - Получить все templates
+GET {{baseUrl}}/templates
+
+### POST - Создать новый template
+POST {{baseUrl}}/templates
+Content-Type: application/json
+
+{
+  "name": "Заявление на отпуск",
+  "filePath": "/templates/system/vacation-request.docx",
+  "variables": ["employeeName", "startDate", "endDate", "position"],
+  "storageType": "system",
+  "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+}
+
+### POST - Создать user template
+POST {{baseUrl}}/templates
+Content-Type: application/json
+
+{
+  "name": "Пользовательский шаблон",
+  "filePath": "/templates/user/custom-doc.docx",
+  "variables": ["title", "content", "author"],
+  "storageType": "user",
+  "userId": "user123",
+  "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+}

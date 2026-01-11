@@ -21,7 +21,7 @@ export class Template {
   @Prop({ required: true, enum: ['system', 'user'] })
   storageType: string;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   userId: string | null;
 
   @Prop({ required: true })

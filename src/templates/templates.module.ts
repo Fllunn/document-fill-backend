@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { TemplatesController } from './templates.controller';
 import { TemplatesService } from './templates.service';
 import { Template, TemplateSchema } from './schemas/templates.schema';
+import { RolesModule } from 'src/roles/roles.module';
 
 @Module({
   imports: [
@@ -14,7 +15,8 @@ import { Template, TemplateSchema } from './schemas/templates.schema';
         schema: TemplateSchema,
         collection: 'templates'
       }
-    ])
+    ]),
+    RolesModule
   ],
   controllers: [TemplatesController],
   providers: [TemplatesService],
