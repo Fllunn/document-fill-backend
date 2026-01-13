@@ -146,6 +146,9 @@ export class DocumentsService {
       throw ApiError.AccessDenied();
     }
 
+    if (document.file?.path) {
+      await this.filesService.deleteYCFile(document.file.path);
+    }
     await this.documentModel.deleteOne({ _id: id }).exec();
 
     return true;
