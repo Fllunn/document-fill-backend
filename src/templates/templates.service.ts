@@ -144,6 +144,13 @@ export class TemplatesService {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    
+    return this.create({
+      name: file.originalname,
+      storageType: 'user',
+      mimeType: file.mimetype,
+      variables: [], // Переменные будут заполнены позже при обработке файла
+      filePath: '', // Пусть будет пустым, файл хранится в памяти
+      userId: user._id,
+    }, user);
   }
 }
