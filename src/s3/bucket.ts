@@ -42,6 +42,31 @@ class YandexCloud {
     }
   }
 
+  public async deleteFile (filePath: string): Promise<void> {
+    try {
+      const params = {
+        Bucket: process.env.YC_BUCKET_NAME,
+        Key: filePath,
+      };
+
+      const aws = this.aws;
+
+      await new Promise<void>((resolve, reject) => {
+        aws.deleteObject(params, function (err, data) {
+          if (err) {
+            console.error('Error delete file from yandex cloud:', err);
+            return reject(err);
+          }
+          console.log('File successfully deleted from yandex cloud', filePath);
+          resolve();
+        });
+      });
+    } catch (error) {
+      console.error('deleteFile failed:', error);
+      throw error;
+    }
+  }
+
   public async generatePresignedUrl(objectKey: string) {
     try {
       const params = {

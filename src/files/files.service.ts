@@ -90,6 +90,15 @@ export class FilesService {
     return filePath;
   }
 
+  
+  async deleteYCFile(filePath: string): Promise<void> {
+    if (!filePath) {
+      throw ApiError.BadRequest('Путь к файлу не указан');
+    }
+
+    await YaCloud.deleteFile(filePath);
+  }
+
   /**
    * https://github.com/alonrbar/easy-template-x#listing-tags
    * extract variables from docx file

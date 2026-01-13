@@ -26,27 +26,27 @@ export class TemplatesService {
     private rolesService: RolesService,
   ) {}
 
-  async create(template: ITemplate, user: any): Promise<Template> {
-    // Только админ может добавть system шаблон
-    // Через RolesService проверяем, что у пользователя есть роль admin
-    if (template.storageType === 'system' && !this.rolesService.isAdmin(user.roles)) {
-      throw ApiError.AccessDenied();
-    }
+  // async create(template: ITemplate, user: any): Promise<Template> {
+  //   // Только админ может добавть system шаблон
+  //   // Через RolesService проверяем, что у пользователя есть роль admin
+  //   if (template.storageType === 'system' && !this.rolesService.isAdmin(user.roles)) {
+  //     throw ApiError.AccessDenied();
+  //   }
 
-    // Для user шаблонов автоматически устанавливаем userId, для system по умолчанию null
-    if (template.storageType === 'user') {
-      template.userId = user._id;
-    }
+  //   // Для user шаблонов автоматически устанавливаем userId, для system по умолчанию null
+  //   if (template.storageType === 'user') {
+  //     template.userId = user._id;
+  //   }
 
-    const createdTemplate = new this.templateModel(template);
-    const savedTemplate = await createdTemplate.save();
+  //   const createdTemplate = new this.templateModel(template);
+  //   const savedTemplate = await createdTemplate.save();
 
-    const result: any = savedTemplate.toObject();
-    delete result.userId; // Не возвращаем userId
-    delete result.filePath; // Не возвращаем filePath
+  //   const result: any = savedTemplate.toObject();
+  //   delete result.userId; // Не возвращаем userId
+  //   delete result.filePath; // Не возвращаем filePath
 
-    return result;
-  }
+  //   return result;
+  // }
 
   async findAll(user: any): Promise<Template[]> {
     const templates = await this.templateModel
@@ -83,7 +83,7 @@ export class TemplatesService {
     return result;
   }
 
-  async update(id: string, user: any, templateToEdit: ITemplateToEdit): Promise<ITemplateToEdit> {
+  async update(id: string, user: any, templateToEdit: ITemplateToEdit, newFile?: Express.Multer.File): Promise<ITemplateToEdit> {
     const template = await this.templateModel.findById(id).exec();
     
     if (!template) {
@@ -100,12 +100,27 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
 
-    Object.assign(template, templateToEdit); // обноввляем поля шаблона
-    const updatedTemplate = await template.save();
+    if (newFile) {
+      if (template.storageType === 'system') {
+        await this.filesService.deleteSystemFile(template.filePath);
+        template.filePath = this.filesService.saveSystemFile(newFile, this.filesService.generateFileName(newFile.originalname));
+      } else {
+        await this.filesService.deleteYCFile(template.filePath);
+        template.filePath = await this.filesService.saveYCFile(newFile, this.filesService.generateFileName(newFile.originalname), user);
+      }
+      
+      template.variables = await this.filesService.extractVariables(newFile);
+      template.mimeType = newFile.mimetype;
+      template.name = newFile.originalname.replace(/\s+/g, '_'); // replace spaces with _
+    }
 
+    Object.assign(template, templateToEdit);
+
+    const updatedTemplate = await template.save();
     const result: any = updatedTemplate.toObject();
     delete result.userId;
     delete result.filePath;
+
     return result;
   }
 
@@ -128,7 +143,12 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
 
-    await template.deleteOne();;
+    if (template.storageType === 'system') {
+      await this.filesService.deleteSystemFile(template.filePath);
+    } else {
+      await this.filesService.deleteYCFile(template.filePath);
+    }
+
     return true;
   }
 
@@ -146,8 +166,6 @@ export class TemplatesService {
     if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
       throw ApiError.AccessDenied();
     }
-    
-    await this.filesService.deleteSystemFile(template.filePath); // delete file from storage
 
     return template.variables;
   }
