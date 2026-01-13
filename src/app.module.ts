@@ -10,8 +10,9 @@ import { TokenModule } from './token/token.module';
 import { UserModule } from './user/user.module';
 import { RolesModule } from './roles/roles.module';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { MongooseModule } from '@nestjs/mongoose';
+import { APP_GUARD } from '@nestjs/core';
 import { TemplatesModule } from './templates/templates.module';
 import { DocumentsModule } from './documents/documents.module';
 
@@ -19,9 +20,9 @@ import { DocumentsModule } from './documents/documents.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
-      ttl: 1000,
-      limit: 20,
-      blockDuration: 10 * 60000,
+      ttl: 1000, // 1 second
+      limit: 20, // 20 requests per ttl
+      blockDuration: 10 * 60000, // 10 minutes
     }]),
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot(process.env.MONGO_URL, {
@@ -39,6 +40,13 @@ import { DocumentsModule } from './documents/documents.module';
     DocumentsModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Global rate limiting guard
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule { }
