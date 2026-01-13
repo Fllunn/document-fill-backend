@@ -106,7 +106,7 @@ export class TemplatesService {
         template.filePath = this.filesService.saveSystemFile(newFile, this.filesService.generateFileName(newFile.originalname));
       } else {
         await this.filesService.deleteYCFile(template.filePath);
-        template.filePath = await this.filesService.saveYCFile(newFile, this.filesService.generateFileName(newFile.originalname), user);
+        template.filePath = await this.filesService.saveYCFileTemplate(newFile, this.filesService.generateFileName(newFile.originalname), user);
       }
       
       template.variables = await this.filesService.extractVariables(newFile);
@@ -143,6 +143,7 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
 
+    // remove template from storage
     if (template.storageType === 'system') {
       await this.filesService.deleteSystemFile(template.filePath);
     } else {
@@ -193,7 +194,7 @@ export class TemplatesService {
     if (isSystem) {
       filePath = this.filesService.saveSystemFile(file, fileName);
     } else {
-      filePath = await this.filesService.saveYCFile(file, fileName, user);
+      filePath = await this.filesService.saveYCFileTemplate(file, fileName, user);
     }
 
     const variables = await this.filesService.extractVariables(file);

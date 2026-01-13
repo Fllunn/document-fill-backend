@@ -75,7 +75,7 @@ class YandexCloud {
         Expires: 60 * 5, // URL expiration time in seconds
         ContentType: 'application/octet-stream', // Set the content type
       };
-      const url = await this.aws.getSignedUrlPromise('putObject', params);
+      const url = await this.aws.getSignedUrlPromise('getObject', params);
       return url;
     } catch (error) {
       console.error('Error generating pre-signed URL', error);

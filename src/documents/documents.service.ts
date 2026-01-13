@@ -7,26 +7,46 @@ import { IDocumentToCreate } from './interfaces/IDocumentsToCreate';
 import ApiError from 'src/exceptions/errors/api-error';
 import { RolesService } from 'src/roles/roles.service';
 import { Template } from 'src/templates/schemas/templates.schema';
+import { FilesService } from 'src/files/files.service';
+import { Types } from 'mongoose';
+
 
 @Injectable()
 export class DocumentsService {
   constructor(
     @InjectModel(Document.name) private documentModel: Model<Document>,
     @InjectModel(Template.name) private templateModel: Model<Template>,
+    private filesService: FilesService,
     private rolesService: RolesService,
   ) {}
 
-  async create(document: IDocumentToCreate, user: any): Promise<Document> {
+  async create(document: IDocumentToCreate, user: any, folderPath?: string): Promise<Document> {
     const template = await this.templateModel.findById(document.templateId).exec();
     
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
     }
 
+    const fileName = `${new Types.ObjectId().toString()}-${template.name}`;
+
+    const documentBuffer = await this.filesService.fillTemplate(template.filePath, document.values);
+
+    const filePath = await this.filesService.saveYCFileDocument(
+      { buffer: documentBuffer } as Express.Multer.File,
+      fileName,
+      user,
+      folderPath
+    )
+
     const createdDocument = new this.documentModel({
       templateId: document.templateId,
       userId: user._id,
       values: document.values,
+      file: {
+        path: this.filesService.normalizeYCFilePath(filePath),
+        size: documentBuffer.byteLength,
+        mimeType: fileName.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
     });
 
     const savedDocument = await createdDocument.save();
@@ -68,7 +88,7 @@ export class DocumentsService {
     return documents;
   }
 
-  async update(id: string, user: any, documentToEdit: IDocumentToEdit): Promise<Document> {
+  async update(id: string, user: any, documentToEdit: IDocumentToEdit, folderPath?: string): Promise<Document> {
     const document = await this.documentModel.findById(id).exec();
     
     if (!document) {
@@ -79,11 +99,39 @@ export class DocumentsService {
       throw ApiError.AccessDenied();
     }
 
+    // if values updated
+    if (documentToEdit.values) {
+      const template = await this.templateModel.findById(document.templateId).exec();
+      if (!template) throw ApiError.NotFound();
+
+      const documentBuffer = await this.filesService.fillTemplate(template.filePath, documentToEdit.values);
+      
+      // delete old file
+      if (document.file?.path){
+        await this.filesService.deleteYCFile(document.file.path);
+      }
+
+      const fileName = `${new Types.ObjectId().toString()}-${template.name}`;
+      const newFilePath = await this.filesService.saveYCFileDocument(
+        { buffer: documentBuffer } as Express.Multer.File,
+        fileName,
+        user,
+        folderPath
+      );
+
+      document.file = {
+        path: this.filesService.normalizeYCFilePath(newFilePath),
+        size: documentBuffer.byteLength,
+        mimeType: fileName.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
+    }
+
     Object.assign(document, documentToEdit);
 
     const updatedDocument = await document.save();
     const result: any = updatedDocument.toObject();
     delete result.userId;
+
     return result;
   }
 

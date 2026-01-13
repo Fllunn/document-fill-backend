@@ -67,13 +67,13 @@ export class FilesService {
   }
 
   /**
-   * save in yandex cloud storage
+   * save in yandex cloud storage (templates)
    * @param file 
    * @param fileName 
    * @param user 
    * @returns file URL in yandex cloud storage
    */
-  async saveYCFile(file: Express.Multer.File, fileName: string, user: any): Promise<string> {
+  async saveYCFileTemplate(file: Express.Multer.File, fileName: string, user: any): Promise<string> {
     const path = `users/${user._id}/templates`;
     const uploadResult = await YaCloud.Upload({
       file,
@@ -86,17 +86,48 @@ export class FilesService {
       throw ApiError.Internal('Ошибка при загрузке файла в облачное хранилище');
     }
 
-    const filePath = uploadResult.Location;
-    return filePath;
+    return `${path}/${fileName}`;
   }
 
+  /**
+   * save in yandex cloud storage (documents)
+   * @param file 
+   * @param fileName 
+   * @param user 
+   * @param folderPath 
+   * @returns 
+   */
+  async saveYCFileDocument(file: Express.Multer.File, fileName: string, user: any, folderPath?: string): Promise<string> {
+    let path = folderPath ? `users/${user._id}/documents/${folderPath}` : `users/${user._id}/documents`;
+
+    const uploadResult = await YaCloud.Upload({
+      file,
+      path,
+      fileName,
+    })
+
+    if (!uploadResult || !uploadResult.Location) {
+      throw ApiError.Internal('Ошибка при загрузке файла в облачное хранилище');
+    }
+
+    path = this.normalizeYCFilePath(path);
+    return `${path}/${fileName}`;
+  }
+
+  normalizeYCFilePath(filePath: string): string {
+    return filePath
+      .replace(/\\/g, '/') // replace backslashes with forward slashes
+      .replace(/^\/+/, '') // remove leading slashes
+      .replace(/\.\./g, '') // remove parent directory references
+      .replace(/\/+/g, '/'); // replace multiple slashes with single slash
+  }
   
   async deleteYCFile(filePath: string): Promise<void> {
     if (!filePath) {
       throw ApiError.BadRequest('Путь к файлу не указан');
     }
 
-    await YaCloud.deleteFile(filePath);
+    await YaCloud.deleteFile(this.normalizeYCFilePath(filePath));
   }
 
   /**
@@ -115,5 +146,38 @@ export class FilesService {
     // tags - {name, type}, we need only names
     const variables = tags.map(tag => tag.name);
     return variables;
+  }
+
+  async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
+    if (!filePath) {
+      throw ApiError.BadRequest('Путь к файлу не указан');
+    }
+
+    let fileBuffer: Buffer;
+
+    // if file is in YC
+    if (filePath.startsWith('users/')) {
+      const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
+
+      const response = await fetch(presignedUrl);
+
+      if (!response.ok) {
+        throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+      }
+
+      fileBuffer = Buffer.from(await response.arrayBuffer());
+    } else {
+      // local system file
+      const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
+      try {
+        fileBuffer = fs.readFileSync(pathLocal);
+      } catch (error) {
+        throw ApiError.NotFound();
+      }
+    }
+
+    const template = new TemplateHandler();
+    const filledBuffer = await template.process(fileBuffer, values);
+    return filledBuffer;
   }
 }
