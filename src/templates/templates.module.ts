@@ -9,6 +9,7 @@ import { RolesModule } from 'src/roles/roles.module';
 import { TokenModule } from 'src/token/token.module';
 import { UserClass, UserSchema } from 'src/user/schemas/user.schema';
 import { AuthGuard } from 'src/auth/auth.guard';
+import { FilesModule } from 'src/files/files.module';
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { AuthGuard } from 'src/auth/auth.guard';
       }
     ]),
     RolesModule,
-    TokenModule
+    TokenModule,
+    FilesModule
   ],
   controllers: [TemplatesController],
   providers: [TemplatesService, AuthGuard],

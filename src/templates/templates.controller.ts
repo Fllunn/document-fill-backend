@@ -116,11 +116,11 @@ export class TemplatesController {
     }),
   )
   @UseFilters(MulterExceptionFilter)
-  createFromFile(@UploadedFile() file: Express.Multer.File, @Req() request: any) {
+  createFromFile(@UploadedFile() file: Express.Multer.File, @Body('isSystem') isSystem: boolean, @Req() request: any) {
     if (!file) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    return this.templatesService.createFromFile(file, request.user);
+    return this.templatesService.createFromFile(file, isSystem, request.user);
   }
 }

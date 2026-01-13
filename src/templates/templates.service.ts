@@ -1,16 +1,28 @@
-import { Model } from 'mongoose';
+// NestJS
 import { Injectable } from '@nestjs/common';
+
+// MongoDB
+import { Model, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
+
+// Schemas and Interfaces
 import { Template } from './schemas/templates.schema';
 import { ITemplate } from './interfaces/templates.interface';
 import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
-import ApiError from 'src/exceptions/errors/api-error';
+
+// Services
 import { RolesService } from 'src/roles/roles.service';
+import { FilesService } from 'src/files/files.service';
+
+// Errors
+import ApiError from 'src/exceptions/errors/api-error';
+
 
 @Injectable()
 export class TemplatesService {
   constructor(
     @InjectModel(Template.name) private templateModel: Model<Template>,
+    private filesService: FilesService,
     private rolesService: RolesService,
   ) {}
 
@@ -132,25 +144,52 @@ export class TemplatesService {
     }
 
     if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
-      // Пользователь может получить переменные только своих user шаблонов
       throw ApiError.AccessDenied();
     }
+    
+    await this.filesService.deleteSystemFile(template.filePath); // delete file from storage
 
     return template.variables;
   }
 
-  async createFromFile(file: Express.Multer.File, user: any): Promise<Template> {
+  async createFromFile(file: Express.Multer.File, isSystem: boolean, user: any): Promise<Template> {
     if (!file || !file.buffer) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    return this.create({
-      name: file.originalname,
-      storageType: 'user',
-      mimeType: file.mimetype,
-      variables: [], // Переменные будут заполнены позже при обработке файла
-      filePath: '', // Пусть будет пустым, файл хранится в памяти
-      userId: user._id,
-    }, user);
+    if (isSystem && !this.rolesService.isAdmin(user.roles)) {
+      // only admin can add system template
+      throw ApiError.AccessDenied();
+    }
+
+    // base data in template
+    const originalName = file.originalname.replace(/\s+/g, '_'); // replace spaces with _
+    const mimeType = file.mimetype;
+    const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
+    const userId = isSystem ? null : user._id;
+
+    const fileName = this.filesService.generateFileName(originalName); 
+
+    let filePath: string;
+
+    if (isSystem) {
+      filePath = this.filesService.saveSystemFile(file, fileName);
+    } else {
+      filePath = await this.filesService.saveYCFile(file, fileName, user);
+    }
+
+    // generate template document
+    const template: ITemplate = {
+      name: originalName,
+      filePath,
+      variables: [],
+      storageType,
+      userId,
+      mimeType,
+    };
+
+    const savedTemplate = await this.templateModel.create(template);
+
+    return savedTemplate;
   }
 }
