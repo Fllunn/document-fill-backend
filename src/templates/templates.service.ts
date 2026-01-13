@@ -178,11 +178,13 @@ export class TemplatesService {
       filePath = await this.filesService.saveYCFile(file, fileName, user);
     }
 
+    const variables = await this.filesService.extractVariables(file);
+
     // generate template document
     const template: ITemplate = {
       name: originalName,
       filePath,
-      variables: [],
+      variables,
       storageType,
       userId,
       mimeType,
