@@ -9,6 +9,8 @@ import { Template, TemplateSchema } from 'src/templates/schemas/templates.schema
 import { RolesModule } from 'src/roles/roles.module';
 import { TokenModule } from 'src/token/token.module';
 import UserModel from 'src/user/models/user.model';
+import { FilesModule } from 'src/files/files.module';
+
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import UserModel from 'src/user/models/user.model';
     ]),
     RolesModule,
     TokenModule,
+    FilesModule,
     UserModel
   ],
   controllers: [DocumentsController],

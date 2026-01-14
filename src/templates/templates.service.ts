@@ -17,6 +17,8 @@ import { FilesService } from 'src/files/files.service';
 // Errors
 import ApiError from 'src/exceptions/errors/api-error';
 
+// Other
+import * as path from 'path';
 
 @Injectable()
 export class TemplatesService {
@@ -183,6 +185,12 @@ export class TemplatesService {
 
     // base data in template
     const originalName = file.originalname.replace(/\s+/g, '_'); // replace spaces with _
+
+    const extension = path.extname(originalName).toLowerCase();
+    if (extension !== '.docx') {
+      throw ApiError.BadRequest('Поддерживаются только .docx файлы');
+    }
+
     const mimeType = file.mimetype;
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
     const userId = isSystem ? null : user._id;

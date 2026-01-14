@@ -140,12 +140,16 @@ export class FilesService {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    const handler = new TemplateHandler();
-    const tags = await handler.parseTags(file.buffer);
+    try {
+      const handler = new TemplateHandler();
+      const tags = await handler.parseTags(file.buffer);
 
-    // tags - {name, type}, we need only names
-    const variables = tags.map(tag => tag.name);
-    return variables;
+      // tags - {name, type}, we need only names
+      const variables = tags.map(tag => tag.name);
+      return variables;
+    } catch (error) {
+      throw ApiError.Internal('Ошибка при извлечении переменных из файла');
+    }
   }
 
   async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
