@@ -38,6 +38,13 @@ export class UserClass {
     required: false
   })
   avatars: string[];
+
+  @Prop({
+    type: Number,
+    default: 0,
+    required: false
+  })
+  fileCount?: number;
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserClass);

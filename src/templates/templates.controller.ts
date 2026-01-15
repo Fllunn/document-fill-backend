@@ -12,7 +12,6 @@ import {
   Delete,
   Param,
   UseInterceptors,
-  UseFilters,
 } from '@nestjs/common';
 
 import { TemplatesService } from './templates.service';
@@ -22,7 +21,6 @@ import { AuthGuard } from 'src/auth/auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common/decorators';
 import ApiError from 'src/exceptions/errors/api-error';
-import { MulterExceptionFilter } from 'src/exceptions/filters/multer-exception.filter';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiOkResponse } from '@nestjs/swagger';
 
 
@@ -102,7 +100,6 @@ export class TemplatesController {
   })
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 512 * 1024 }, // 512 KB
       fileFilter: (req, file, cb) => {
         if (
           file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // .docx
@@ -115,11 +112,16 @@ export class TemplatesController {
       },
     }),
   )
-  @UseFilters(MulterExceptionFilter)
   createFromFile(@UploadedFile() file: Express.Multer.File, @Body('isSystem') isSystem: string, @Req() request: any) {
     if (!file) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
+
+    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log(file, isSystem)
+    // }
 
     return this.templatesService.createFromFile(file, isSystem === 'true', request.user);
   }

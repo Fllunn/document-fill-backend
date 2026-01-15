@@ -7,4 +7,5 @@ export interface User {
   email: string
   password: string
   roles: Role[]
+  fileCount?: number; // count file uploaded by user
 }

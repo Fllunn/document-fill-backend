@@ -7,12 +7,14 @@ import { InjectModel } from '@nestjs/mongoose';
 
 // Schemas and Interfaces
 import { Template } from './schemas/templates.schema';
+import { User } from 'src/user/interfaces/user.interface';
 import { ITemplate } from './interfaces/templates.interface';
 import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 
 // Services
 import { RolesService } from 'src/roles/roles.service';
 import { FilesService } from 'src/files/files.service';
+import { UserService } from 'src/user/user.service';
 
 // Errors
 import ApiError from 'src/exceptions/errors/api-error';
@@ -23,9 +25,13 @@ import * as path from 'path';
 @Injectable()
 export class TemplatesService {
   constructor(
-    @InjectModel(Template.name) private templateModel: Model<Template>,
+    @InjectModel(Template.name)
+    private templateModel: Model<Template>,
+    @InjectModel('User')
+    private userModel: Model<User>,
     private filesService: FilesService,
     private rolesService: RolesService,
+    private userService: UserService,
   ) {}
 
   // async create(template: ITemplate, user: any): Promise<Template> {
@@ -178,9 +184,20 @@ export class TemplatesService {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
+    if (!this.rolesService.isAdmin(user.roles) && file.size > 512 * 1024) {
+      throw ApiError.BadRequest('Размер файла не должен превышать 512 КБ');
+    }
+
     if (isSystem && !this.rolesService.isAdmin(user.roles)) {
       // only admin can add system template
       throw ApiError.AccessDenied();
+    }
+
+    const userDB = await this.userModel.findById(user._id).select('fileCount').lean().exec();
+    const fileCount = userDB?.fileCount || 0;
+
+    if (!isSystem && fileCount >= 5) {
+      throw ApiError.BadRequest('Превышен лимит количества загружаемых шаблонов (максимум 5)');
     }
 
     // base data in template
@@ -218,6 +235,14 @@ export class TemplatesService {
     };
 
     const savedTemplate = await this.templateModel.create(template);
+
+    if (!isSystem) {
+      await this.userModel.findByIdAndUpdate(
+        user._id,
+        { $inc: { fileCount: 1 } },
+        { new: true }
+      );
+    }
 
     return savedTemplate;
   }

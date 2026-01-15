@@ -10,6 +10,8 @@ import { TokenModule } from 'src/token/token.module';
 import { UserClass, UserSchema } from 'src/user/schemas/user.schema';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { FilesModule } from 'src/files/files.module';
+import { UserModule } from 'src/user/user.module';
+import { UserService } from 'src/user/user.service';
 
 @Module({
   imports: [
@@ -26,7 +28,8 @@ import { FilesModule } from 'src/files/files.module';
     ]),
     RolesModule,
     TokenModule,
-    FilesModule
+    FilesModule,
+    UserModule
   ],
   controllers: [TemplatesController],
   providers: [TemplatesService, AuthGuard],

@@ -11,6 +11,7 @@ import { UserService } from './user.service';
     JwtModule,
   ],
   controllers: [UserController],
-  providers: [RolesService, UserService]
+  providers: [RolesService, UserService],
+  exports: [UserService],
 })
 export class UserModule {}

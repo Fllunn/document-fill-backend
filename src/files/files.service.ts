@@ -8,7 +8,8 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
-import { TemplateHandler } from 'easy-template-x';
+import { Delimiters, TemplateHandler } from 'easy-template-x';
+import createReport, { listCommands } from 'docx-templates';
 
 
 @Injectable()
@@ -86,6 +87,10 @@ export class FilesService {
       throw ApiError.Internal('Ошибка при загрузке файла в облачное хранилище');
     }
 
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('YC Upload Result:', uploadResult);
+    // }
+
     return `${path}/${fileName}`;
   }
 
@@ -136,20 +141,35 @@ export class FilesService {
    * @param file 
    */
   async extractVariables(file: Express.Multer.File): Promise<string[]> {
+
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('Extracting variables from file:', file.originalname);
+    // }
+    
     if (!file || !file.buffer) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
     try {
-      const handler = new TemplateHandler();
-      const tags = await handler.parseTags(file.buffer);
 
-      // tags - {name, type}, we need only names
-      const variables = tags.map(tag => tag.name);
+      const arrayBuffer = new Uint8Array(file.buffer).buffer;
+
+      const commands = await listCommands(arrayBuffer, ['{{', '}}']);
+
+      const variables = commands
+        .filter(cmd => cmd.type === 'INS' && typeof cmd.code === 'string')
+        .map(cmd => cmd.code.trim());
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Extracted variables:', variables);
+      }
+      
       return variables;
     } catch (error) {
+      console.error('Error extracting variables:', error);
       throw ApiError.Internal('Ошибка при извлечении переменных из файла');
     }
+    
   }
 
   async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {

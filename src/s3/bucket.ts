@@ -57,7 +57,11 @@ class YandexCloud {
             console.error('Error delete file from yandex cloud:', err);
             return reject(err);
           }
-          console.log('File successfully deleted from yandex cloud', filePath);
+
+          // if (process.env.NODE_ENV === 'development') {
+          //   console.log('File successfully deleted from yandex cloud', filePath);
+          // }
+
           resolve();
         });
       });
