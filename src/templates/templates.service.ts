@@ -158,6 +158,14 @@ export class TemplatesService {
       await this.filesService.deleteYCFile(template.filePath);
     }
 
+    if (template.storageType !== 'system' && !this.rolesService.isAdmin(user.roles)) {
+      await this.userModel.findByIdAndUpdate(
+        user._id,
+        { $inc: { fileCount: -1 } },
+        { new: true }
+      );
+    }
+
     return true;
   }
 
@@ -196,7 +204,7 @@ export class TemplatesService {
     const userDB = await this.userModel.findById(user._id).select('fileCount').lean().exec();
     const fileCount = userDB?.fileCount || 0;
 
-    if (!isSystem && fileCount >= 5) {
+    if (!this.rolesService.isAdmin(user.roles) && !isSystem && fileCount >= 5) {
       throw ApiError.BadRequest('Превышен лимит количества загружаемых шаблонов (максимум 5)');
     }
 
@@ -236,7 +244,7 @@ export class TemplatesService {
 
     const savedTemplate = await this.templateModel.create(template);
 
-    if (!isSystem) {
+    if (!isSystem && !this.rolesService.isAdmin(user.roles)) {
       await this.userModel.findByIdAndUpdate(
         user._id,
         { $inc: { fileCount: 1 } },

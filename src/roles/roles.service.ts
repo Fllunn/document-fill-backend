@@ -7,8 +7,12 @@ export class RolesService {
   getTypeFromRole(role: Role): string {
     return role.type
   }
-  isAdmin(roles: Role[]): boolean {
-    return roles.map((role: Role) => (role.type)).includes("admin")
+  isAdmin(roles: any[]): boolean {
+  return roles.some(role => {
+      if (typeof role === 'string') return role.toLowerCase() === 'admin';
+      if (typeof role === 'object' && role.type) return role.type.toLowerCase() === 'admin';
+      return false;
+    });
   }
   isManager(roles: Role[]): boolean {
     return roles.map((role: Role) => (role.type)).includes("manager")
