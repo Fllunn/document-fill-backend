@@ -62,7 +62,7 @@ export class UserController {
     summary: 'creat user template categories',
     description: '',
   })
-  async setUserTemplateCategories(@Req() request: any, @Body() categories: string[]) {
+  async setUserTemplateCategories(@Req() request: any, @Body('categories') categories: string[]) {
     return this.UserService.setUserTemplateCategories(request.user, categories);
   }
 
@@ -82,7 +82,7 @@ export class UserController {
     summary: 'Update user template categories',
     description: '',
   })
-  async updateUserTemplateCategories(@Req() request: any, @Body() categories: string[]) {
+  async updateUserTemplateCategories(@Req() request: any, @Body('categories') categories: string[]) {
     return this.UserService.setUserTemplateCategories(request.user, categories);
   }
 
