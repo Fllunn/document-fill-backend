@@ -45,6 +45,13 @@ export class UserClass {
     required: false
   })
   fileCount?: number;
+
+  @Prop({
+    type: Array,
+    default: [],
+    required: false
+  })
+  templateCategories?: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserClass);

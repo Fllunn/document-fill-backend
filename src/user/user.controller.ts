@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
   Patch,
+  Delete,
 } from '@nestjs/common';
 
 import { SomeAdminGuard } from 'src/admin/some_admin.guard';
@@ -17,11 +18,14 @@ import { GlobalAdminGuard } from 'src/admin/global_admin.guard';
 
 import { UserService } from './user.service';
 import ApiError from 'src/exceptions/errors/api-error';
+import { ApiOperation } from '@nestjs/swagger';
+import { AuthGuard } from 'src/auth/auth.guard';
 
 
 // types
 import { Role } from '../roles/interfaces/role.interface';
 import { UserFromClient } from './interfaces/user-from-client.interface';
+import { User } from './interfaces/user.interface';
 import RequestWithUser from 'src/types/request-with-user.type';
 
 
@@ -50,6 +54,46 @@ export class UserController {
       throw ApiError.BadRequest('Пользователь с таким ID не найден');
 
     return candidate;
+  }
+
+  @Post('categories')
+  @UseGuards(AuthGuard) // только авторизованные
+  @ApiOperation({
+    summary: 'creat user template categories',
+    description: '',
+  })
+  async setUserTemplateCategories(@Req() request: any, @Body() categories: string[]) {
+    return this.UserService.setUserTemplateCategories(request.user, categories);
+  }
+
+  @Get('categories')
+  @UseGuards(AuthGuard) // только авторизованные
+  @ApiOperation({
+    summary: 'Get user template categories',
+    description: '',
+  })
+  async getUserTemplateCategories(@Req() request: any) {
+    return this.UserService.getUserTemplateCategories(request.user);
+  }
+
+  @Patch('categories')
+  @UseGuards(AuthGuard) // только авторизованные
+  @ApiOperation({
+    summary: 'Update user template categories',
+    description: '',
+  })
+  async updateUserTemplateCategories(@Req() request: any, @Body() categories: string[]) {
+    return this.UserService.setUserTemplateCategories(request.user, categories);
+  }
+
+  @Delete('categories')
+  @UseGuards(AuthGuard) // только авторизованные
+  @ApiOperation({
+    summary: 'Delete user template categories',
+    description: '',
+  })
+  async deleteUserTemplateCategories(@Req() request: any) {
+    return this.UserService.deleteUserTemplateCategories(request.user);
   }
 
   // @HttpCode(HttpStatus.OK)

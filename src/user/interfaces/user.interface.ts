@@ -8,4 +8,5 @@ export interface User {
   password: string
   roles: Role[]
   fileCount?: number; // count file uploaded by user
+  templateCategories?: number;
 }
