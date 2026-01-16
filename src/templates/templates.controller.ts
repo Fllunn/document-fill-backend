@@ -107,7 +107,7 @@ export class TemplatesController {
         ) {
           cb(null, true);
         } else {
-          cb(new Error('INVALID_FILE_TYPE'), false);
+          cb(ApiError.BadRequest('Разрешены только файлы .docx и .doc'), false);
         }
       },
     }),

@@ -180,7 +180,7 @@ export class TemplatesService {
       throw ApiError.NotFound();
     }
 
-    if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
+    if (template.storageType === 'user' && template.userId?.toString() !== user._id?.toString()) {
       throw ApiError.AccessDenied();
     }
 
