@@ -170,10 +170,11 @@ export class TemplatesService {
   }
 
   // Получение переменных либо system шаблонов, либо только своих user шаблонов
-  async getTemplateVariables(id: string, user: any): Promise<string[]> {
+  async getTemplateVariables(id: string, user: any): Promise<Record<string, string[]>> {
     const template = await this.templateModel
       .findById(id)
       .select('variables storageType userId')
+      .lean()
       .exec();
 
     if (!template) {
@@ -184,7 +185,33 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
 
-    return template.variables;
+    const grouped: Record<string, string[]> = {};
+    
+    template.variables.forEach((v: string) => {
+      const firstDot = v.indexOf('.');
+      
+      let category: string;
+      let name: string;
+      
+      if (firstDot === -1) {
+        category = 'Разное';
+        name = v;
+      } else {
+        category = v.slice(0, firstDot).trim();
+        name = v.slice(firstDot + 1).trim();
+      }
+
+      if (!category) category = 'Разное';
+      if (!name) return;
+
+      if (!grouped[category]) {
+        grouped[category] = [];
+      }
+
+      grouped[category].push(name);
+    })
+
+    return grouped;
   }
 
   async createFromFile(file: Express.Multer.File, isSystem: boolean, user: any): Promise<Template> {

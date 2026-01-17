@@ -158,13 +158,15 @@ export class FilesService {
 
       const variables = commands
         .filter(cmd => cmd.type === 'INS' && typeof cmd.code === 'string')
-        .map(cmd => cmd.code.trim());
+        .map(cmd => cmd.code.replace(/\s*\.\s*/g, '.').trim());
+
+      const uniqueVariables = Array.from(new Set(variables));
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('Extracted variables:', variables);
+        console.log('Extracted variables:', uniqueVariables);
       }
       
-      return variables;
+      return uniqueVariables;
     } catch (error) {
       console.error('Error extracting variables:', error);
       throw ApiError.Internal('Ошибка при извлечении переменных из файла');
