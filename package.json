@@ -38,6 +38,7 @@
     "docx-templates": "^4.15.0",
     "dotenv": "^17.2.3",
     "easy-template-x": "^7.0.3",
+    "ioredis": "^5.10.1",
     "mongoose": "^9.1.1",
     "mongoose-autopopulate": "^1.2.1",
     "multer": "^2.0.2",

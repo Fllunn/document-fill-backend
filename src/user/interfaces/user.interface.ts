@@ -7,6 +7,9 @@ export interface User {
   email: string
   password: string
   roles: Role[]
-  fileCount?: number; // count file uploaded by user
+  fileCount?: number; // количество загруженных файлов, оно нужно для ограничения
+  
+  isVerified: boolean // подтвержден ли email
+  isTwoFactorEnabled: boolean // включена ли двухфакторная аутентификация
 }
 

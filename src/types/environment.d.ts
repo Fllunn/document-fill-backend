@@ -11,6 +11,10 @@ declare global {
 
       JWT_ACCESS_SECRET: string
       JWT_REFRESH_SECRET: string
+      REDIS_HOST: string
+      REDIS_PORT: string
+      REDIS_PASSWORD: string
+      REDIS_DB: string
 
       EMAIL: string
       EMAIL_PASSWORD: string

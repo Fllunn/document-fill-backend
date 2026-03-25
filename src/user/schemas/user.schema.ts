@@ -10,34 +10,34 @@ export class UserClass {
     required: true,
     min: 2,
   })
-  name: string;
+  name!: string;
 
   @Prop({
     type: String,
     required: true,
     unique: true
   })
-  email: string;
+  email!: string;
 
   @Prop({
     type: String,
     required: true,
   })
-  password: string;
+  password!: string;
 
   @Prop({
     type: Array,
     default: ['user'],
     required: false,
   })
-  roles: string[];
+  roles!: string[];
 
   @Prop({
     type: Array,
     default: [],
     required: false
   })
-  avatars: string[];
+  avatars!: string[];
 
   @Prop({
     type: Number,
@@ -45,6 +45,20 @@ export class UserClass {
     required: false
   })
   fileCount?: number;
+
+  @Prop({
+    type: Boolean,
+    default: false,
+    required: false
+  })
+  isVerified!: boolean;
+
+  @Prop({
+    type: Boolean,
+    default: false,
+    required: false
+  })
+  isTwoFactorEnabled!: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserClass);
