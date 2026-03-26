@@ -20,6 +20,7 @@ export class AuthService {
   ) { }
 
   async registration(user: UserFromClient) {
+    // ищем пользователя с такой почтой, если есть, то выдаем ошибку
     const candidate = await this.UserModel.findOne({ email: user.email })
 
     if (candidate)
@@ -28,6 +29,7 @@ export class AuthService {
     if (user.password.length < 8)
       throw ApiError.BadRequest('Слишком короткий пароль')
 
+    // хэшируем пароль с помощью bcrypt
     const password = await bcrypt.hash(user.password, 3)
 
     const created_user: UserDocument = await this.UserModel.create({
@@ -38,7 +40,9 @@ export class AuthService {
       avatars: Array.isArray(user.avatars) ? user.avatars : []
     })
 
+    // генерируем access и refresh токены для нового пользователя
     const tokens = this.TokenService.generateTokens({ _id: created_user._id, password: created_user.password })
+    // сохраняем refresh токен в redis
     if (tokens.refreshToken)
       await this.TokenService.saveToken(tokens.refreshToken)
 
@@ -58,12 +62,14 @@ export class AuthService {
     if (user.password.length < 8)
       throw ApiError.BadRequest('Слишком короткий пароль')
 
+    // сравниваем пароль из БД с паролем, который ввел пользователь
     const isPassEquals = await bcrypt.compare(password, user.password)
 
     if (!isPassEquals) {
       throw ApiError.BadRequest('Неверный пароль')
     }
 
+    // генерируем access и refresh токены для пользователя
     const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
     if (tokens?.refreshToken)
       await this.TokenService.saveToken(tokens.refreshToken)
@@ -74,13 +80,20 @@ export class AuthService {
     }
   }
 
+  /**
+   * Обновление access токена с помощью refresh токена
+   * @param refreshToken 
+   * @param accessToken 
+   * @returns refreshToken, newAccessToken, user
+   */
   async refresh(refreshToken: string, accessToken: string) {
-    let userData: any; // jwt payload
-    let user: any; // object to return
+    let userData: any; // jwt payload (_id, password и т.д.)
+    let user: any; // object to return (user._id, user.name, user.email, user.roles и т.д.)
 
     // проверить, валиден ли ещё accessToken
     userData = this.TokenService.validateAccessToken(accessToken)
 
+    // если accessToken валиден, то просто вернуть его и юзера
     if (userData != null) {
       user = await this.UserModel.findById(userData._id)
 
@@ -90,27 +103,32 @@ export class AuthService {
         user: user
       }
     }
+    
     // если accessToken не валиден - пройти авторизацию с refreshToken и создать новый accessToken
 
     // если нет refreshToken выкидываем пользователя
+    // он может удалиться при выходе из аккаунта или через 30 дней после генерации
     if (!refreshToken) {
       throw ApiError.UnauthorizedError()
     }
 
+    // проверить валиден ли refreshToken и есть ли он в БД
     userData = this.TokenService.validateRefreshToken(refreshToken)
     const tokenFromDb = await this.TokenService.findToken(refreshToken)
-    // если refreshToken сдох, то выкидываем пользователя
+
+    // если refreshToken не валиден или его нет в БД, то выкидываем пользователя
     if (!userData || !tokenFromDb) {
       throw ApiError.UnauthorizedError()
     }
 
     user = await this.UserModel.findById(userData._id)
 
+    // проверить, соответствует ли пароль в JWT паролю в БД
     if (userData.password !== user.password) {
       throw ApiError.AccessDenied('Аутентификация провалена. Пароль изменен')
     }
-    // new accessToken, чтобы пользователь мог зайти в
-    // систему ближайшие 15 минут без использоватния refreshToken
+    
+    // если все проверки пройдены, то генерируем новый accessToken и возвращаем его вместе с refreshToken и юзером
     const newAccessToken = this.TokenService.generateAccessToken({ _id: user._id, password: user.password })
 
     return {
@@ -120,30 +138,45 @@ export class AuthService {
     }
   }
 
+  /**
+   * Валидация входа для сброса пароля
+   * @param user_id 
+   * @param token 
+   * @returns 
+   */
   async validateEnterToResetPassword(user_id: any, token: string) {
     let candidate = await this.UserModel.findById(user_id)
 
-    if (!candidate?._id) throw ApiError.BadRequest('Пользователь с таким _id не найден')
+    if (!candidate?._id)
+      throw ApiError.BadRequest('Пользователь с таким _id не найден')
 
+    // секрет для reset токена = это JWT_RESET_SECRET + пароль пользователя
     let secret = process.env.JWT_RESET_SECRET + candidate.password
 
+    // проверить валидность reset токена
     let result = this.TokenService.validateResetToken(token, secret)
 
-    if (!result) throw ApiError.AccessDenied()
+    if (!result)
+      throw ApiError.AccessDenied()
 
+    // если токен валиден, то вернуть результат (payload reset токена)
     return result
   }
 
   async resetPassword(password: string, token: string, userId: string) {
     try {
+      // проверить, валиден ли reset токен и соответствует ли он пользователю
       await this.validateEnterToResetPassword(userId, token)
 
+      // хэшируем новый пароль и сохраняем его в БД
       const hashPassword = await bcrypt.hash(password, 3)
       const user = await this.UserModel.findByIdAndUpdate(userId, { password: hashPassword })
 
       if (!user) return null
 
+      // генерируем новый access и refresh токены для пользователя, так как его пароль изменился
       const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
+
       if (tokens.refreshToken) {
         await this.TokenService.saveToken(tokens.refreshToken)
         return {
@@ -151,31 +184,53 @@ export class AuthService {
           user: user
         }
       }
+
       return null
     } catch (error) {
       return null
     }
   }
 
+  /**
+   * Отправка ссылки для сброса пароля
+   * @param email 
+   * @returns link
+   */
   async sendResetLink(email: string) {
     let candidate = await this.UserModel.findOne({ email })
     if (!candidate)
       throw ApiError.BadRequest('Пользователь с таким email не найден')
 
+    // секрет для reset токена = это JWT_RESET_SECRET + пароль пользователя
     const secret = process.env.JWT_RESET_SECRET + candidate.password
+    
+    // создать reset токен
     const token = this.TokenService.createResetToken({ _id: candidate._id, password: candidate.password }, secret)
 
+    // создать ссылку для сброса пароля: CLIENT_URL/forgot-password?user_id=...&token=...
     const link = process.env.CLIENT_URL + `/forgot-password?user_id=${candidate._id}&token=${token}`
 
+    // отправить ссылку на почту пользователя
     await this.mailService.sendResetLink(link, email)
 
     return link
   }
 
+  /**
+   * Удаление refresh токена из БД при выходе из аккаунта
+   * @param refreshToken 
+   * @returns
+   */
   async logout(refreshToken: string) {
     return await this.TokenService.removeToken(refreshToken)
   }
 
+  /**
+   * Обновление данных пользователя (кроме пароля, для него отдельный метод resetPassword)
+   * @param newUser 
+   * @param userId 
+   * @returns 
+   */
   async update(newUser: UserFromClient, userId: string) {
     return await this.UserModel.findByIdAndUpdate(userId, newUser, {
       new: true,
@@ -183,7 +238,11 @@ export class AuthService {
     })
   }
 
+  /**
+   * Получение всех пользователей без паролей
+   * @returns 
+   */
   async getAllUsers() {
-    return await this.UserModel.find({}).populate('myCourses')
+    return await this.UserModel.find({}, { password: 0 }).lean()
   }
 }

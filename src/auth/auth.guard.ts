@@ -15,9 +15,21 @@ export class AuthGuard implements CanActivate {
     @InjectModel('User') private UserModel: Model<UserClass>,
   ) { }
 
+  /**
+   * Проверка авторизации пользователя
+   * @param context объект, содержащий информацию о текущем запросе
+   * @returns 
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // context.switchToHttp() - переключаемся на HTTP
+    // getRequest() - получаем объект запроса
     const request = context.switchToHttp().getRequest()
+
+    // cookie - строка вида "token=123, refreshToken=456"
+    // cookie.parse() - превращаем строку в объект { token: '123', refreshToken: '456' }
     const cookies = cookie.parse(request.headers.cookie || '');
+
+    // достаём access token из куки
     const accessToken = cookies.token;
 
     if (!accessToken) throw ApiError.UnauthorizedError()

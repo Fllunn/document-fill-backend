@@ -12,6 +12,7 @@ export class TokenService {
 		db: Number(process.env.REDIS_DB ?? 0),
 	});
 
+  // проверка reset токена
 	validateResetToken(token: string, secret: string): any {
 		try {
 			return jwt.verify(token, secret)
@@ -20,6 +21,7 @@ export class TokenService {
 		}
 	}
 
+  // создание reset токена
 	createResetToken(payload: any, secret: string): string | null {
 		try {
 			return jwt.sign(payload, secret, { expiresIn: '7d' })
@@ -28,6 +30,7 @@ export class TokenService {
 		}
 	}
 
+  // генерация access и refresh токенов
 	generateTokens(payload: any): { accessToken: string | null, refreshToken: string | null } {
 		try {
 			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
@@ -39,6 +42,7 @@ export class TokenService {
 		}
 	}
 
+  
 	generateAccessToken(payload: any): string | null {
 		try {
 			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
