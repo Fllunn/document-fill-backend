@@ -26,6 +26,7 @@ export class AuthController {
 		@InjectModel('User') private UserModel: Model<UserClass>,
 	) { }
 
+  // ограничение на количество запросов: не больше 4 запросов в минуту, иначе блокировка на 5 минут
 	@Throttle({
 		default: {
 			ttl: 60000,
@@ -39,21 +40,27 @@ export class AuthController {
 		@Res({ passthrough: true }) res: Response,
 		@Body() user: UserFromClient
 	) {
+    // зарегистрировать пользователя, получить access и refresh токены
 		const userData = await this.AuthService.registration(user)
 
+    // если мы в проде, то отправляем письмо с подтверждением регистрации
 		if (process.env.NODE_ENV === 'production')
 			await this.mailService.sendUserConfirmation(user);
 
+    // сохраняем refresh token в куки
 		let refreshToken = userData.refreshToken
 
 		let userDataToSend: any = { ...userData }
+    // удаляем refresh token из объекта, который отправим клиенту, чтобы он не видел его
 		delete userDataToSend.refreshToken;
 
+    // отправляем access token и refresh token в куки
+    // res.cookie(...).cookie(...).cookie(...).json(...)
 		res.cookie(
 			'refreshToken',
 			refreshToken,
 			{
-				maxAge: 30 * 24 * 60 * 60 * 1000,
+				maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
 				httpOnly: !eval(process.env.HTTPS),
 				secure: eval(process.env.HTTPS),
 				domain: process.env?.DOMAIN ?? ''
@@ -62,7 +69,7 @@ export class AuthController {
 			'token',
 			userData.accessToken,
 			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
+				maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
 				httpOnly: !eval(process.env.HTTPS),
 				secure: eval(process.env.HTTPS),
 				domain: process.env?.DOMAIN ?? ''
@@ -71,7 +78,7 @@ export class AuthController {
 			'roles',
 			JSON.stringify(userData.user.roles),
 			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
+				maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
 				httpOnly: !eval(process.env.HTTPS),
 				secure: eval(process.env.HTTPS),
 				domain: process.env?.DOMAIN ?? ''

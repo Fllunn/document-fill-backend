@@ -25,7 +25,7 @@ export class AdminAuthGuard implements CanActivate {
       throw ApiError.AccessDenied()
     }
 
-    // с помощью access token'а получаем _id пользователя 
+    // с помощью access token получаем _id пользователя 
     let userData = this.tokenService.validateAccessToken(accessToken);
     if (userData?._id) {
       let user = await this.UserModel.findById(userData._id)

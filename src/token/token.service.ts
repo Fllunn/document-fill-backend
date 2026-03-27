@@ -1,17 +1,18 @@
 import { Injectable } from '@nestjs/common'
-import { InjectModel } from '@nestjs/mongoose';
 import * as jwt from 'jsonwebtoken'
-import { Model } from 'mongoose';
 import { User } from 'src/user/interfaces/user.interface';
-import { Token } from './interfaces/token.interface';
-import { TokenClass } from './schemas/token.schema';
+import Redis from 'ioredis';
 
 @Injectable()
 export class TokenService {
-	constructor(
-		@InjectModel('Token') private TokenModel: Model<TokenClass>,
-	) { }
+	private readonly redis = new Redis({
+		host: process.env.REDIS_HOST,
+		port: Number(process.env.REDIS_PORT),
+		password: process.env.REDIS_PASSWORD || undefined,
+		db: Number(process.env.REDIS_DB ?? 0),
+	});
 
+  // проверка reset токена
 	validateResetToken(token: string, secret: string): any {
 		try {
 			return jwt.verify(token, secret)
@@ -20,6 +21,7 @@ export class TokenService {
 		}
 	}
 
+  // создание reset токена
 	createResetToken(payload: any, secret: string): string | null {
 		try {
 			return jwt.sign(payload, secret, { expiresIn: '7d' })
@@ -28,6 +30,7 @@ export class TokenService {
 		}
 	}
 
+  // генерация access и refresh токенов
 	generateTokens(payload: any): { accessToken: string | null, refreshToken: string | null } {
 		try {
 			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
@@ -39,6 +42,7 @@ export class TokenService {
 		}
 	}
 
+  
 	generateAccessToken(payload: any): string | null {
 		try {
 			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
@@ -64,15 +68,20 @@ export class TokenService {
 		}
 	}
 
-	async saveToken(refreshToken: string): Promise<Token> {
-		return await this.TokenModel.create({ refreshToken })
+  // сохраняем refresh токен
+  // действует 30 дней, удаляется при выходе из аккаунта
+	async saveToken(refreshToken: string): Promise<void> {
+		await this.redis.set(`rt:${refreshToken}`, '1', 'EX', 30 * 24 * 60 * 60)
 	}
 
-	async removeToken(refreshToken: string) {
-		return await this.TokenModel.deleteOne({ refreshToken })
+  // удаление refresh токена
+	async removeToken(refreshToken: string): Promise<number> {
+		return await this.redis.del(`rt:${refreshToken}`)
 	}
 
-	async findToken(refreshToken: string) {
-		return await this.TokenModel.findOne({ refreshToken })
+  // проверяем, существует ли refresh токен
+	async findToken(refreshToken: string): Promise<string | null> {
+		const exists = await this.redis.exists(`rt:${refreshToken}`)
+		return exists ? refreshToken : null
 	}
 }
