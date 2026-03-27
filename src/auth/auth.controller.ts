@@ -1,6 +1,19 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards, UploadedFiles, UseInterceptors, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+  UploadedFiles,
+  UseInterceptors,
+  Query} from '@nestjs/common'
+
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import { Request, Response } from 'express';
+import { CookieOptions, Request, Response } from 'express';
 import RequestWithUser from 'src/types/request-with-user.type';
 import { UserFromClient } from 'src/user/interfaces/user-from-client.interface';
 import { User } from 'src/user/interfaces/user.interface';
@@ -10,281 +23,246 @@ import { MailService } from 'src/mail/mail.service';
 import { Throttle } from '@nestjs/throttler';
 
 import YaCloud from 'src/s3/bucket';
-import * as sharp from "sharp";
+import sharp from 'sharp'
 
 // all about MongoDB
 import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model, Types } from 'mongoose';
 import { UserClass } from 'src/user/schemas/user.schema';
 
+// стандартные настройки для Throttle
+const AUTH_THROTTLE_OPTIONS = {
+  default: {
+    ttl: 60000,
+    limit: 5,
+    blockDuration: 5 * 60000,
+  },
+}
+
+// для refresh больше попыток, т.к. он может вызываться часто
+const REFRESH_THROTTLE_OPTIONS = {
+  default: {
+    ttl: 60000,
+    limit: 30,
+    blockDuration: 5 * 60000,
+  },
+}
+
+// время жизни refresh токена 30 дней
+const REFRESH_TOKEN_MAX_AGE = 30 * 24 * 60 * 60 * 1000
+// время жизни access токена 7 дней
+const ACCESS_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000
+
 
 @Controller('auth')
 export class AuthController {
-	constructor(
-		private AuthService: AuthService,
-		private mailService: MailService,
-		@InjectModel('User') private UserModel: Model<UserClass>,
-	) { }
+  constructor(
+    private readonly AuthService: AuthService,
+    private readonly mailService: MailService,
+    @InjectModel('User') private readonly UserModel: Model<UserClass>,
+  ) {}
 
-  // ограничение на количество запросов: не больше 4 запросов в минуту, иначе блокировка на 5 минут
-	@Throttle({
-		default: {
-			ttl: 60000,
-			limit: 4,
-			blockDuration: 5 * 60000
-		}
-	})
-	@HttpCode(HttpStatus.CREATED)
-	@Post('registration')
-	async registration(
-		@Res({ passthrough: true }) res: Response,
-		@Body() user: UserFromClient
-	) {
-    // зарегистрировать пользователя, получить access и refresh токены
-		const userData = await this.AuthService.registration(user)
+  /**
+   ** httpOnly: true, куки не будут доступны на фронтенде
+   ** secure: env.HTTPS === 'true', куки будут передаваться только по HTTPS
+   ** domain: env.DOMAIN, куки будут доступны только на этом домене в проде
+   * @param maxAge время жизни токена
+   * @returns
+   */
+  private getCookieOptions(maxAge: number): CookieOptions {
+    return {
+      maxAge,
+      httpOnly: true,
+      secure: process.env.HTTPS === 'true',
+      domain: process.env?.DOMAIN ?? '',
+    }
+  }
 
-    // если мы в проде, то отправляем письмо с подтверждением регистрации
-		if (process.env.NODE_ENV === 'production')
-			await this.mailService.sendUserConfirmation(user);
+  /**
+   * Очистка куки
+   * @param res
+   */
+  private clearAuthCookies(res: Response): void {
+    res.clearCookie('refreshToken').clearCookie('token')
+  }
 
-    // сохраняем refresh token в куки
-		let refreshToken = userData.refreshToken
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.CREATED)
+  @Post('registration')
+  async registration(
+    @Res({ passthrough: true }) res: Response,
+    @Body() user: UserFromClient,
+  ) {
+    // регистрация нового пользователя + генерация токенов
+    const userData = await this.AuthService.registration(user)
 
-		let userDataToSend: any = { ...userData }
-    // удаляем refresh token из объекта, который отправим клиенту, чтобы он не видел его
-		delete userDataToSend.refreshToken;
+    // в проде отправляем письмо с подтверждением регистрации
+    if (process.env.NODE_ENV === 'production') {
+      await this.mailService.sendUserConfirmation(user)
+    }
 
-    // отправляем access token и refresh token в куки
-    // res.cookie(...).cookie(...).cookie(...).json(...)
-		res.cookie(
-			'refreshToken',
-			refreshToken,
-			{
-				maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).cookie(
-			'token',
-			userData.accessToken,
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).cookie(
-			'roles',
-			JSON.stringify(userData.user.roles),
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		)
-			.json(userDataToSend)
-	}
+    // удаляем refreshToken из объекта, который отправим на фронтенд
+    const userDataToSend: any = { ...userData }
+    delete userDataToSend.refreshToken
 
-	@Throttle({
-		default: {
-			ttl: 60000,
-			limit: 5,
-			blockDuration: 5 * 60000
-		}
-	})
-	@HttpCode(HttpStatus.OK)
-	@Post('login')
-	async login(
-		@Res({ passthrough: true }) res: Response,
-		@Body('email') email: string,
-		@Body('password') password: string
-	) {
-		const userData = await this.AuthService.login(email, password)
+    // сохраняем refreshToken и accessToken в куки
+    res
+      .cookie(
+        'refreshToken',
+        userData.refreshToken,
+        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+      )
+      .cookie(
+        'token',
+        userData.accessToken,
+        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+      )
+      .json(userDataToSend)
+  }
 
-		let refreshToken = userData.refreshToken
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('login')
+  async login(
+    @Res({ passthrough: true }) res: Response,
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
+    // авторизация пользователя + генерация токенов
+    const userData = await this.AuthService.login(email, password)
 
-		let userDataToSend: any = { ...userData }
-		delete userDataToSend.refreshToken;
+    // удаляем refreshToken из объекта, который отправим на фронтенд
+    const userDataToSend: any = { ...userData }
+    delete userDataToSend.refreshToken
 
-		res.cookie(
-			'refreshToken',
-			refreshToken,
-			{
-				maxAge: 30 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).cookie(
-			'token',
-			userData.accessToken,
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).cookie(
-			'roles',
-			JSON.stringify(userData.user.roles),
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		)
-			.json(userDataToSend)
-	}
+    res
+      .cookie(
+        'refreshToken',
+        userData.refreshToken,
+        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+      )
+      .cookie(
+        'token',
+        userData.accessToken,
+        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+      )
+      .json(userDataToSend)
+  }
 
-	@HttpCode(HttpStatus.OK)
-	@Get('refresh')
-	async refresh(
-		@Req() req: Request,
-		@Res() res: Response,
-	) {
-		const { refreshToken, token } = req.cookies
+  @Throttle(REFRESH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Get('refresh')
+  async refresh(
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const { refreshToken, token } = req.cookies
+    const userData = await this.AuthService.refresh(refreshToken, token)
 
-		// проверить, валиден ещё accessToken
-		// если accessToken не валиден - сделать новый с помощью refreshToken
-		const userData = await this.AuthService.refresh(refreshToken, token)
-		// console.log(JSON.stringify(userData.user.roles));
+    res
+      .cookie(
+        'refreshToken',
+        refreshToken,
+        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+      )
+      .cookie(
+        'token',
+        userData.accessToken,
+        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+      )
+      .json(userData.user)
+  }
 
-		res.cookie(
-			'refreshToken',
-			refreshToken,
-			{
-				maxAge: 30 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		)
-		res.cookie(
-			'token',
-			userData.accessToken,
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		)
-		res.json(userData.user)
-	}
+  @HttpCode(HttpStatus.OK)
+  @Post('logout')
+  async logout(
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const { refreshToken } = req.cookies
 
-	@HttpCode(HttpStatus.OK)
-	@Post('logout')
-	async logout(
-		@Req() req: Request,
-		@Res() res: Response,
-	) {
-		const { refreshToken } = req.cookies
+    await this.AuthService.logout(refreshToken)
+    this.clearAuthCookies(res)
+    res.send()
+  }
 
-		await this.AuthService.logout(refreshToken)
-		res.clearCookie('refreshToken').clearCookie('token').send()
-	}
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @Post('reset-password')
+  async resetPassword(
+    @Res() res: Response,
+    @Body('password') password: string,
+    @Body('token') token: string,
+    @Body('userId') userId: string,
+  ) {
+    const userData = await this.AuthService.resetPassword(password, token, userId)
+    const userDataToSend: any = { ...userData }
+    delete userDataToSend.refreshToken
 
-	@Throttle({
-		default: {
-			ttl: 60000,
-			limit: 4,
-			blockDuration: 5 * 60000
-		}
-	})
-	@Post('reset-password')
-	async resetPassword(
-		@Res() res: Response,
-		@Body('password') password: string,
-		@Body('token') token: string,
-		@Body('userId') userId: string
-	) {
-		const userData = await this.AuthService.resetPassword(password, token, userId)
+    res
+      .cookie(
+        'refreshToken',
+        userData?.refreshToken,
+        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+      )
+      .cookie(
+        'token',
+        userData?.accessToken,
+        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+      )
+      .json(userDataToSend)
+  }
 
-		let refreshToken = userData?.refreshToken
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('update')
+  async update(
+    @Body('user') newUser: UserFromClient,
+    @Body('userId') userId: string,
+  ) {
+    return await this.AuthService.update(newUser, userId)
+  }
 
-		let userDataToSend: any = { ...userData }
-		delete userDataToSend.refreshToken;
+  @HttpCode(HttpStatus.OK)
+  @Post('send-reset-link')
+  async sendResetLink(@Body('email') email: string) {
+    return await this.AuthService.sendResetLink(email)
+  }
 
-		res.cookie(
-			'refreshToken',
-			refreshToken,
-			{
-				maxAge: 30 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).cookie(
-			'token',
-			userData?.accessToken,
-			{
-				maxAge: 7 * 24 * 60 * 60 * 1000,
-				httpOnly: !eval(process.env.HTTPS),
-				secure: eval(process.env.HTTPS),
-				domain: process.env?.DOMAIN ?? ''
-			}
-		).json(userDataToSend)
-	}
+  @Post('upload-avatar')
+  @UseInterceptors(AnyFilesInterceptor())
+  async uploadAvatar(
+    @UploadedFiles() files: Array<Express.Multer.File>,
+    @Query('user_id') userId: string,
+  ) {
+    const filenames: string[] = []
 
-	@UseGuards(AuthGuard)
-	@HttpCode(HttpStatus.OK)
-	@Post('update')
-	async update(
-		@Body('user') newUser: UserFromClient,
-		@Body('userId') userId: string
-	) {
-		return await this.AuthService.update(newUser, userId)
-	}
+    for (const file of files) {
+      if (file.originalname.startsWith('avatar')) {
+        file.buffer = await sharp(file.buffer).resize(300, 300).toBuffer()
+      }
 
-	@HttpCode(HttpStatus.OK)
-	@Post('send-reset-link')
-	async sendResetLink(
-		@Body('email') email: string
-	) {
-		let link = await this.AuthService.sendResetLink(email)
-		return link
-	}
+      const uploadResult: any = await YaCloud.Upload({
+        file,
+        path: 'avatars',
+        fileName: file.originalname,
+      })
 
-	@Post('upload-avatar')
-	@UseInterceptors(AnyFilesInterceptor())
-	async uploadAvatar(
-		@UploadedFiles() files: Array<Express.Multer.File>,
-		@Query('user_id') userId: String,
-	) {
-		let filenames: string[] = [];
+      filenames.push(uploadResult.Location)
+    }
 
-		for (let file of files) {
-			if (file.originalname.startsWith('avatar')) {
-				file.buffer = await sharp(file.buffer).resize(300, 300).toBuffer()
-			}
-			let uploadResult: any = await YaCloud.Upload({
-				file,
-				path: 'avatars',
-				fileName: file.originalname,
-			});
-			filenames.push(uploadResult.Location);
-		}
+    if (filenames.length === 0) {
+      return
+    }
 
-		if (filenames.length == 0) return
+    return await this.UserModel.findByIdAndUpdate(userId, {
+      $set: { avatars: [filenames[0]] },
+    })
+  }
 
-		return await this.UserModel.findByIdAndUpdate(userId, { $set: { avatars: [filenames[0]] } });
-	}
-
-	@Throttle({
-		default: {
-			ttl: 60000,
-			limit: 4,
-			blockDuration: 5 * 60000
-		}
-	})
-	@HttpCode(HttpStatus.OK)
-	@Post("validate-manager-invite-token")
-	async validateManagerInviteToken(
-		@Body("inviteToken") inviteToken: string
-	) {
-		return false;
-	}
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('validate-manager-invite-token')
+  async validateManagerInviteToken(@Body('inviteToken') inviteToken: string) {
+    return false
+  }
 }
