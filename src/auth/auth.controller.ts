@@ -274,11 +274,4 @@ export class AuthController {
       $set: { avatars: [filenames[0]] },
     })
   }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('validate-manager-invite-token')
-  async validateManagerInviteToken(@Body('inviteToken') inviteToken: string) {
-    return false
-  }
 }

@@ -12,12 +12,19 @@ import { MailService } from 'src/mail/mail.service'
 
 @Injectable()
 export class AuthService {
+  private static readonly MIN_PASSWORD_LENGTH = 8
+
   constructor(
     @InjectModel('User') private UserModel: Model<UserClass>,
     private TokenService: TokenService,
     private RolesService: RolesService,
     private mailService: MailService,
   ) { }
+
+  private validatePassword(password: string) {
+    if (password.length < AuthService.MIN_PASSWORD_LENGTH)
+      throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
+  }
 
   /**
    * Получение объекта пользователя без пароля
@@ -44,13 +51,12 @@ export class AuthService {
     if (candidate)
       throw ApiError.BadRequest(`Пользователь с почтой ${user.email} уже существует`)
 
-    if (user.password.length < 8)
-      throw ApiError.BadRequest('Слишком короткий пароль')
+    this.validatePassword(user.password)
 
     // хэшируем пароль с помощью bcrypt
     const password = await bcrypt.hash(user.password, 3)
 
-    const created_user: UserDocument = await this.UserModel.create({
+    const createdUser: UserDocument = await this.UserModel.create({
       name: user.name,
       email: user.email,
       password,
@@ -59,14 +65,14 @@ export class AuthService {
     })
 
     // генерируем access и refresh токены для нового пользователя
-    const tokens = this.TokenService.generateTokens({ _id: created_user._id, password: created_user.password })
+    const tokens = this.TokenService.generateTokens({ _id: createdUser._id, password: createdUser.password })
     // сохраняем refresh токен в redis
     if (tokens.refreshToken)
       await this.TokenService.saveToken(tokens.refreshToken)
 
     return {
       ...tokens,
-      user: this.getSafeUser(created_user)
+      user: this.getSafeUser(createdUser)
     }
   }
 
@@ -76,9 +82,6 @@ export class AuthService {
     if (!user) {
       throw ApiError.BadRequest('Пользователь с таким email не найден')
     }
-
-    if (user.password.length < 8)
-      throw ApiError.BadRequest('Слишком короткий пароль')
 
     // сравниваем пароль из БД с паролем, который ввел пользователь
     const isPassEquals = await bcrypt.compare(password, user.password)
@@ -164,12 +167,12 @@ export class AuthService {
 
   /**
    * Валидация входа для сброса пароля
-   * @param user_id 
+   * @param userId 
    * @param token 
    * @returns 
    */
-  async validateEnterToResetPassword(user_id: any, token: string) {
-    let candidate = await this.UserModel.findById(user_id)
+  async validateEnterToResetPassword(userId: any, token: string) {
+    let candidate = await this.UserModel.findById(userId)
 
     if (!candidate?._id)
       throw ApiError.BadRequest('Пользователь с таким _id не найден')
@@ -190,6 +193,8 @@ export class AuthService {
   async resetPassword(password: string, token: string, userId: string) {
     // проверить, валиден ли reset токен и соответствует ли он пользователю
     await this.validateEnterToResetPassword(userId, token)
+
+    this.validatePassword(password)
 
     // хэшируем новый пароль и сохраняем его в БД
     const hashPassword = await bcrypt.hash(password, 3)
@@ -232,13 +237,13 @@ export class AuthService {
     // создать reset токен
     const token = this.TokenService.createResetToken({ _id: candidate._id, password: candidate.password }, secret)
 
-    // создать ссылку для сброса пароля: CLIENT_URL/forgot-password?user_id=...&token=...
-    const link = process.env.CLIENT_URL + `/forgot-password?user_id=${candidate._id}&token=${token}`
+    // создать ссылку для сброса пароля: CLIENT_URL/forgot-password?userId=...&token=...
+    const link = process.env.CLIENT_URL + `/forgot-password?userId=${candidate._id}&token=${token}`
 
     // отправить ссылку на почту пользователя
     await this.mailService.sendResetLink(link, email)
 
-    return link
+    return true
   }
 
   /**
