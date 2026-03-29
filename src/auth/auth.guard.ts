@@ -32,23 +32,30 @@ export class AuthGuard implements CanActivate {
     // достаём access token из куки
     const accessToken = cookies.token;
 
-    if (!accessToken) throw ApiError.UnauthorizedError()
-    let userData = this.tokenService.validateAccessToken(accessToken);
+    if (!accessToken)
+      throw ApiError.UnauthorizedError()
 
-    if (userData?._id) {
-      // достаём актуального пользователя с ролями из БД
-      const dbUser = await this.UserModel.findById(userData._id).lean();
-      if (!dbUser) throw ApiError.UnauthorizedError();
+    const userData = this.tokenService.validateAccessToken(accessToken)
 
-      request.user = {
-        _id: dbUser._id,
-        name: dbUser.name,
-        email: dbUser.email,
-        roles: dbUser.roles || [],
-        avatars: dbUser.avatars || [],
-      };
-      return true
+    if (!userData?._id)
+      throw ApiError.UnauthorizedError()
+
+    const dbUser = await this.UserModel.findById(userData._id).lean()
+
+    if (!dbUser)
+      throw ApiError.UnauthorizedError()
+
+    if (userData.password !== dbUser.password)
+      throw ApiError.AccessDenied('Пароль пользователя изменился, пожалуйста, войдите в аккаунт заново')
+
+    request.user = {
+      _id: dbUser._id,
+      name: dbUser.name,
+      email: dbUser.email,
+      roles: dbUser.roles,
+      avatars: dbUser.avatars,
     }
-    throw ApiError.UnauthorizedError();
+
+    return true
   }
 }
