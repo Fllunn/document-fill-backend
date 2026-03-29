@@ -7,23 +7,16 @@ import {
   Post,
   Req,
   Res,
-  UseGuards,
-  UploadedFiles,
-  UseInterceptors,
-  Query} from '@nestjs/common'
+  UseGuards
+} from '@nestjs/common'
 
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { CookieOptions, Request, Response } from 'express';
 import RequestWithUser from 'src/types/request-with-user.type';
 import { UserFromClient } from 'src/user/interfaces/user-from-client.interface';
-import { User } from 'src/user/interfaces/user.interface';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { MailService } from 'src/mail/mail.service';
 import { Throttle } from '@nestjs/throttler';
-
-import YaCloud from 'src/s3/bucket';
-import sharp from 'sharp'
 
 // all about MongoDB
 import { InjectModel } from '@nestjs/mongoose';
@@ -230,37 +223,5 @@ export class AuthController {
   @Post('send-reset-link')
   async sendResetLink(@Body('email') email: string) {
     return await this.AuthService.sendResetLink(email)
-  }
-
-  @UseGuards(AuthGuard)
-  @Post('upload-avatar')
-  @UseInterceptors(AnyFilesInterceptor())
-  async uploadAvatar(
-    @UploadedFiles() files: Array<Express.Multer.File>,
-    @Req() req: RequestWithUser,
-  ) {
-    const filenames: string[] = []
-
-    for (const file of files) {
-      if (file.originalname.startsWith('avatar')) {
-        file.buffer = await sharp(file.buffer).resize(300, 300).toBuffer()
-      }
-
-      const uploadResult: any = await YaCloud.Upload({
-        file,
-        path: 'avatars',
-        fileName: file.originalname,
-      })
-
-      filenames.push(uploadResult.Location)
-    }
-
-    if (filenames.length === 0) {
-      return
-    }
-
-    return await this.UserModel.findByIdAndUpdate(req.user._id, {
-      $set: { avatars: [filenames[0]] },
-    })
   }
 }

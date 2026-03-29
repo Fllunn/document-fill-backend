@@ -33,13 +33,6 @@ export class UserClass {
   roles!: string[];
 
   @Prop({
-    type: Array,
-    default: [],
-    required: false
-  })
-  avatars!: string[];
-
-  @Prop({
     type: Number,
     default: 0,
     required: false

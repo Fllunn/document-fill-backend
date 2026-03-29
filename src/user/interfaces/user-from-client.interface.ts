@@ -5,6 +5,5 @@ export interface UserFromClient {
   name: string
   email: string
   password: string
-  avatars: string[]
   roles: string[]
 }

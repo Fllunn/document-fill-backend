@@ -37,7 +37,6 @@ export class AuthService {
       name: user.name,
       email: user.email,
       roles: user.roles,
-      avatars: user.avatars,
       fileCount: user.fileCount,
       isVerified: user.isVerified,
       isTwoFactorEnabled: user.isTwoFactorEnabled,
@@ -61,7 +60,6 @@ export class AuthService {
       email: user.email,
       password,
       roles: ['user'],
-      avatars: Array.isArray(user.avatars) ? user.avatars : []
     })
 
     // генерируем access и refresh токены для нового пользователя
@@ -243,7 +241,6 @@ export class AuthService {
     const userData = {
       name: newUser.name,
       email: newUser.email,
-      avatars: Array.isArray(newUser.avatars) ? newUser.avatars : [],
     }
 
     return await this.UserModel.findByIdAndUpdate(userId, userData, {

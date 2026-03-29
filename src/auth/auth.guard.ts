@@ -53,7 +53,6 @@ export class AuthGuard implements CanActivate {
       name: dbUser.name,
       email: dbUser.email,
       roles: dbUser.roles,
-      avatars: dbUser.avatars,
     }
 
     return true
