@@ -107,7 +107,7 @@ export class AuthService {
    * @param accessToken 
    * @returns refreshToken, newAccessToken, user
    */
-  async refresh(refreshToken: string, accessToken: string) {
+  async refresh(refreshToken: string) {
     if (!refreshToken)
       throw ApiError.UnauthorizedError()
 
@@ -117,34 +117,24 @@ export class AuthService {
     if (!refreshUserData || !tokenFromDb)
       throw ApiError.UnauthorizedError()
 
-    let userData: any; // jwt payload (_id, password и т.д.)
-    let user: any; // object to return (user._id, user.name, user.email, user.roles и т.д.)
-
-    user = await this.UserModel.findById(refreshUserData._id)
+    const user = await this.UserModel.findById(refreshUserData._id)
 
     if (!user)
       throw ApiError.UnauthorizedError()
 
     if (refreshUserData.password !== user.password)
       throw ApiError.AccessDenied('Пароль пользователя изменился, пожалуйста, войдите в аккаунт заново')
-    
-    userData = this.TokenService.validateAccessToken(accessToken)
-
-    if (userData != null) {
-      return {
-        refreshToken: refreshToken,
-        accessToken: accessToken,
-        user: this.getSafeUser(user)
-      }
-    }
 
     const newAccessToken = this.TokenService.generateAccessToken({
       _id: user._id,
-      password: user.password,
+      password: user.password
     })
 
+    if (!newAccessToken)
+      throw ApiError.BadRequest('Не удалось сгенерировать новый access токен')
+
     return {
-      refreshToken: refreshToken,
+      refreshToken,
       accessToken: newAccessToken,
       user: this.getSafeUser(user)
     }

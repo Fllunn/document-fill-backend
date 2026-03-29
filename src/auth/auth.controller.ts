@@ -163,15 +163,10 @@ export class AuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const { refreshToken, token } = req.cookies
-    const userData = await this.AuthService.refresh(refreshToken, token)
+    const { refreshToken } = req.cookies
+    const userData = await this.AuthService.refresh(refreshToken)
 
     res
-      .cookie(
-        'refreshToken',
-        refreshToken,
-        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-      )
       .cookie(
         'token',
         userData.accessToken,
