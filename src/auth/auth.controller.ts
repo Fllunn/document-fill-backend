@@ -62,19 +62,32 @@ export class AuthController {
     @InjectModel('User') private readonly UserModel: Model<UserClass>,
   ) {}
 
+
+  private getBaseCookieOptions(): CookieOptions {
+    const options: CookieOptions = {
+      httpOnly: true,
+      secure: process.env.HTTPS === 'true',
+      path: '/',
+    }
+
+    if (process.env.DOMAIN) {
+      options.domain = process.env.DOMAIN
+    }
+
+    return options
+  }
+
   /**
    ** httpOnly: true, куки не будут доступны на фронтенде
    ** secure: env.HTTPS === 'true', куки будут передаваться только по HTTPS
-   ** domain: env.DOMAIN, куки будут доступны только на этом домене в проде
+   ** domain: env.DOMAIN, куки будут доступны только на этом домене
    * @param maxAge время жизни токена
    * @returns
    */
   private getCookieOptions(maxAge: number): CookieOptions {
     return {
+      ...this.getBaseCookieOptions(),
       maxAge,
-      httpOnly: true,
-      secure: process.env.HTTPS === 'true',
-      domain: process.env?.DOMAIN ?? '',
     }
   }
 
@@ -83,7 +96,9 @@ export class AuthController {
    * @param res
    */
   private clearAuthCookies(res: Response): void {
-    res.clearCookie('refreshToken').clearCookie('token')
+    const cookieOptions = this.getBaseCookieOptions()
+
+    res.clearCookie('refreshToken', cookieOptions).clearCookie('token', cookieOptions)
   }
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
