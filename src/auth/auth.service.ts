@@ -108,55 +108,40 @@ export class AuthService {
    * @returns refreshToken, newAccessToken, user
    */
   async refresh(refreshToken: string, accessToken: string) {
+    if (!refreshToken)
+      throw ApiError.UnauthorizedError()
+
+    const refreshUserData = this.TokenService.validateRefreshToken(refreshToken)
+    const tokenFromDb = await this.TokenService.findToken(refreshToken)
+
+    if (!refreshUserData || !tokenFromDb)
+      throw ApiError.UnauthorizedError()
+
     let userData: any; // jwt payload (_id, password и т.д.)
     let user: any; // object to return (user._id, user.name, user.email, user.roles и т.д.)
 
-    // проверить, валиден ли ещё accessToken
+    user = await this.UserModel.findById(refreshUserData._id)
+
+    if (!user)
+      throw ApiError.UnauthorizedError()
+
+    if (refreshUserData.password !== user.password)
+      throw ApiError.AccessDenied('Пароль пользователя изменился, пожалуйста, войдите в аккаунт заново')
+    
     userData = this.TokenService.validateAccessToken(accessToken)
 
-    // если accessToken валиден, то просто вернуть его и юзера
     if (userData != null) {
-      user = await this.UserModel.findById(userData._id)
-
-      if (!user)
-        throw ApiError.UnauthorizedError()
-
       return {
         refreshToken: refreshToken,
         accessToken: accessToken,
         user: this.getSafeUser(user)
       }
     }
-    
-    // если accessToken не валиден - пройти авторизацию с refreshToken и создать новый accessToken
 
-    // если нет refreshToken выкидываем пользователя
-    // он может удалиться при выходе из аккаунта или через 30 дней после генерации
-    if (!refreshToken) {
-      throw ApiError.UnauthorizedError()
-    }
-
-    // проверить валиден ли refreshToken и есть ли он в БД
-    userData = this.TokenService.validateRefreshToken(refreshToken)
-    const tokenFromDb = await this.TokenService.findToken(refreshToken)
-
-    // если refreshToken не валиден или его нет в БД, то выкидываем пользователя
-    if (!userData || !tokenFromDb) {
-      throw ApiError.UnauthorizedError()
-    }
-
-    user = await this.UserModel.findById(userData._id)
-
-    if (!user)
-      throw ApiError.UnauthorizedError()
-
-    // проверить, соответствует ли пароль в JWT паролю в БД
-    if (userData.password !== user.password) {
-      throw ApiError.AccessDenied('Аутентификация провалена. Пароль изменен')
-    }
-    
-    // если все проверки пройдены, то генерируем новый accessToken и возвращаем его вместе с refreshToken и юзером
-    const newAccessToken = this.TokenService.generateAccessToken({ _id: user._id, password: user.password })
+    const newAccessToken = this.TokenService.generateAccessToken({
+      _id: user._id,
+      password: user.password,
+    })
 
     return {
       refreshToken: refreshToken,

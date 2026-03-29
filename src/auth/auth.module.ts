@@ -20,7 +20,7 @@ import { AuthGuard } from './auth.guard';
     MailModule
   ],
   controllers: [AuthController],
-  providers: [AuthService, RolesService, MailService, AuthGuard],
+  providers: [AuthService, RolesService, AuthGuard],
   exports: [TokenModule, AuthGuard]
 })
 export class AuthModule { }

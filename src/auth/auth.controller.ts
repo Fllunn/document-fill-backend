@@ -116,10 +116,6 @@ export class AuthController {
       await this.mailService.sendUserConfirmation(user)
     }
 
-    // удаляем refreshToken из объекта, который отправим на фронтенд
-    const userDataToSend: any = { ...userData }
-    delete userDataToSend.refreshToken
-
     // сохраняем refreshToken и accessToken в куки
     res
       .cookie(
@@ -132,7 +128,7 @@ export class AuthController {
         userData.accessToken,
         this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
       )
-      .json(userDataToSend)
+      .json(userData.user)
   }
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
@@ -146,10 +142,6 @@ export class AuthController {
     // авторизация пользователя + генерация токенов
     const userData = await this.AuthService.login(email, password)
 
-    // удаляем refreshToken из объекта, который отправим на фронтенд
-    const userDataToSend: any = { ...userData }
-    delete userDataToSend.refreshToken
-
     res
       .cookie(
         'refreshToken',
@@ -161,7 +153,7 @@ export class AuthController {
         userData.accessToken,
         this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
       )
-      .json(userDataToSend)
+      .json(userData.user)
   }
 
   @Throttle(REFRESH_THROTTLE_OPTIONS)
@@ -210,8 +202,6 @@ export class AuthController {
     @Body('userId') userId: string,
   ) {
     const userData = await this.AuthService.resetPassword(password, token, userId)
-    const userDataToSend: any = { ...userData }
-    delete userDataToSend.refreshToken
 
     res
       .cookie(
@@ -224,7 +214,7 @@ export class AuthController {
         userData.accessToken,
         this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
       )
-      .json(userDataToSend)
+      .json(userData.user)
   }
 
   @UseGuards(AuthGuard)
