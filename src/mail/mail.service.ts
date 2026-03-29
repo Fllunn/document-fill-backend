@@ -16,7 +16,7 @@ export class MailService {
       to: email,
       from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>',
       subject: 'DocumentFill: анкета создана',
-      template: './job-form-created', // `.hbs` extension is appended automatically
+      template: './job-form-created',
       context: {
         name: name,
         registerUrl: registerUrl
@@ -28,10 +28,10 @@ export class MailService {
     // const url = `example.com/auth/confirm?token=${token}`;
     await this.mailerService.sendMail({
       to: user.email,
-      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>', // override default from
+      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>',
       subject: 'DocumentFill: регистрация успешна',
-      template: './confirmation', // `.hbs` extension is appended automatically
-      context: { // ✏️ filling curly brackets with content
+      template: './confirmation',
+      context: {
         name: user.name,
         clientUrl: process.env.CLIENT_URL,
         // url,
@@ -42,9 +42,9 @@ export class MailService {
   public async sendOrderNotifications(userEmails: string[], order: any) {
     return await this.mailerService.sendMail({
       to: userEmails,
-      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>', // override default from
+      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>',
       subject: 'DocumentFill: новый заказ',
-      template: 'order', // `.hbs` extension is appended automatically
+      template: 'order',
       context: { order: order._doc }
     });
   }
@@ -52,9 +52,9 @@ export class MailService {
   public async sendResetLink(link: string, email: string) {
     return await this.mailerService.sendMail({
       to: email,
-      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>', // override default from
+      from: '"DocumentFill" <dmitrijpohoda2960@gmail.com>',
       subject: 'DocumentFill: восстановление пароля',
-      template: 'reset-pasword', // `.hbs` extension is appended automatically
+      template: 'reset-pasword',
       context: { link }
     });
   }
