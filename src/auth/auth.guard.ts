@@ -44,7 +44,6 @@ export class AuthGuard implements CanActivate {
         _id: dbUser._id,
         name: dbUser.name,
         email: dbUser.email,
-        password: dbUser.password,
         roles: dbUser.roles || [],
         avatars: dbUser.avatars || [],
       };

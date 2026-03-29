@@ -19,6 +19,24 @@ export class AuthService {
     private mailService: MailService,
   ) { }
 
+  /**
+   * Получение объекта пользователя без пароля
+   * @param user 
+   * @returns 
+   */
+  private getSafeUser(user: UserDocument) {
+    return {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      roles: user.roles,
+      avatars: user.avatars,
+      fileCount: user.fileCount,
+      isVerified: user.isVerified,
+      isTwoFactorEnabled: user.isTwoFactorEnabled,
+    }
+  }
+
   async registration(user: UserFromClient) {
     // ищем пользователя с такой почтой, если есть, то выдаем ошибку
     const candidate = await this.UserModel.findOne({ email: user.email })
@@ -48,7 +66,7 @@ export class AuthService {
 
     return {
       ...tokens,
-      user: created_user
+      user: this.getSafeUser(created_user)
     }
   }
 
@@ -76,7 +94,7 @@ export class AuthService {
 
     return {
       ...tokens,
-      user
+      user: this.getSafeUser(user)
     }
   }
 
@@ -97,10 +115,13 @@ export class AuthService {
     if (userData != null) {
       user = await this.UserModel.findById(userData._id)
 
+      if (!user)
+        throw ApiError.UnauthorizedError()
+
       return {
         refreshToken: refreshToken,
         accessToken: accessToken,
-        user: user
+        user: this.getSafeUser(user)
       }
     }
     
@@ -123,6 +144,9 @@ export class AuthService {
 
     user = await this.UserModel.findById(userData._id)
 
+    if (!user)
+      throw ApiError.UnauthorizedError()
+
     // проверить, соответствует ли пароль в JWT паролю в БД
     if (userData.password !== user.password) {
       throw ApiError.AccessDenied('Аутентификация провалена. Пароль изменен')
@@ -134,7 +158,7 @@ export class AuthService {
     return {
       refreshToken: refreshToken,
       accessToken: newAccessToken,
-      user: user
+      user: this.getSafeUser(user)
     }
   }
 
@@ -172,7 +196,8 @@ export class AuthService {
       const hashPassword = await bcrypt.hash(password, 3)
       const user = await this.UserModel.findByIdAndUpdate(userId, { password: hashPassword })
 
-      if (!user) return null
+      if (!user)
+        throw ApiError.UnauthorizedError()
 
       // генерируем новый access и refresh токены для пользователя, так как его пароль изменился
       const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
@@ -181,7 +206,7 @@ export class AuthService {
         await this.TokenService.saveToken(tokens.refreshToken)
         return {
           ...tokens,
-          user: user
+          user: this.getSafeUser(user)
         }
       }
 
