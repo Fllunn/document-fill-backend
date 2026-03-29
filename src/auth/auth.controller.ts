@@ -201,12 +201,12 @@ export class AuthController {
     res
       .cookie(
         'refreshToken',
-        userData?.refreshToken,
+        userData.refreshToken,
         this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
       )
       .cookie(
         'token',
-        userData?.accessToken,
+        userData.accessToken,
         this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
       )
       .json(userDataToSend)

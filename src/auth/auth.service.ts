@@ -188,31 +188,31 @@ export class AuthService {
   }
 
   async resetPassword(password: string, token: string, userId: string) {
-    try {
-      // проверить, валиден ли reset токен и соответствует ли он пользователю
-      await this.validateEnterToResetPassword(userId, token)
+    // проверить, валиден ли reset токен и соответствует ли он пользователю
+    await this.validateEnterToResetPassword(userId, token)
 
-      // хэшируем новый пароль и сохраняем его в БД
-      const hashPassword = await bcrypt.hash(password, 3)
-      const user = await this.UserModel.findByIdAndUpdate(userId, { password: hashPassword })
+    // хэшируем новый пароль и сохраняем его в БД
+    const hashPassword = await bcrypt.hash(password, 3)
+    const user = await this.UserModel.findByIdAndUpdate(
+      userId,
+      { password: hashPassword },
+      { new: true},
+    )
 
-      if (!user)
-        throw ApiError.UnauthorizedError()
+    if (!user)
+      throw ApiError.UnauthorizedError()
 
-      // генерируем новый access и refresh токены для пользователя, так как его пароль изменился
-      const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
+    // генерируем новый access и refresh токены для пользователя, так как его пароль изменился
+    const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
 
-      if (tokens.refreshToken) {
-        await this.TokenService.saveToken(tokens.refreshToken)
-        return {
-          ...tokens,
-          user: this.getSafeUser(user)
-        }
-      }
+    if (!tokens.refreshToken || !tokens.accessToken)
+      throw ApiError.BadRequest('Не удалось сгенерировать токены')
 
-      return null
-    } catch (error) {
-      return null
+    await this.TokenService.saveToken(tokens.refreshToken)
+
+    return {
+      ...tokens,
+      user: this.getSafeUser(user)
     }
   }
 
