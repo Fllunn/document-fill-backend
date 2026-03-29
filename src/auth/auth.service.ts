@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { TokenService } from 'src/token/token.service'
-import { Model } from 'mongoose'
+import mongoose, { Model } from 'mongoose'
 import ApiError from 'src/exceptions/errors/api-error'
 import { InjectModel } from '@nestjs/mongoose'
 import { UserClass, UserDocument } from 'src/user/schemas/user.schema'
@@ -147,6 +147,9 @@ export class AuthService {
    * @returns 
    */
   async validateEnterToResetPassword(userId: any, token: string) {
+    if (!mongoose.Types.ObjectId.isValid(userId))
+      throw ApiError.BadRequest('Пользователь не найден')
+
     let candidate = await this.UserModel.findById(userId)
 
     if (!candidate?._id)

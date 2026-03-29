@@ -113,7 +113,11 @@ export class AuthController {
 
     // в проде отправляем письмо с подтверждением регистрации
     if (process.env.NODE_ENV === 'production') {
-      await this.mailService.sendUserConfirmation(user)
+      try {
+        await this.mailService.sendUserConfirmation(user)
+      } catch (error) {
+        console.error('Ошибка при отправке письма с подтверждением регистрации:', error)
+      }
     }
 
     // сохраняем refreshToken и accessToken в куки
