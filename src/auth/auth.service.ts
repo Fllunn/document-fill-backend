@@ -232,10 +232,17 @@ export class AuthService {
    * @returns 
    */
   async update(newUser: UserFromClient, userId: string) {
-    return await this.UserModel.findByIdAndUpdate(userId, newUser, {
+    const userData = {
+      name: newUser.name,
+      email: newUser.email,
+      avatars: Array.isArray(newUser.avatars) ? newUser.avatars : [],
+    }
+
+    return await this.UserModel.findByIdAndUpdate(userId, userData, {
       new: true,
-      runValidators: true
-    })
+      runValidators: true,
+      projection: { password: 0 },
+    }).lean()
   }
 
   /**

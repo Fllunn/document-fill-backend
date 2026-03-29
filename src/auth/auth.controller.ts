@@ -217,9 +217,9 @@ export class AuthController {
   @Post('update')
   async update(
     @Body('user') newUser: UserFromClient,
-    @Body('userId') userId: string,
+    @Req() req: RequestWithUser,
   ) {
-    return await this.AuthService.update(newUser, userId)
+    return await this.AuthService.update(newUser, req.user._id)
   }
 
   @HttpCode(HttpStatus.OK)
@@ -228,11 +228,12 @@ export class AuthController {
     return await this.AuthService.sendResetLink(email)
   }
 
+  @UseGuards(AuthGuard)
   @Post('upload-avatar')
   @UseInterceptors(AnyFilesInterceptor())
   async uploadAvatar(
     @UploadedFiles() files: Array<Express.Multer.File>,
-    @Query('user_id') userId: string,
+    @Req() req: RequestWithUser,
   ) {
     const filenames: string[] = []
 
@@ -254,7 +255,7 @@ export class AuthController {
       return
     }
 
-    return await this.UserModel.findByIdAndUpdate(userId, {
+    return await this.UserModel.findByIdAndUpdate(req.user._id, {
       $set: { avatars: [filenames[0]] },
     })
   }
