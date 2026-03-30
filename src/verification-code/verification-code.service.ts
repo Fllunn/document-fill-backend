@@ -36,6 +36,15 @@ export class VerificationCodeService {
     private readonly mailService: MailService,
   ) {}
 
+  private async removeCodeNoAttemptsLeft(codeKey: string): Promise<void> {
+    await this.redis.del(codeKey)
+    throw ApiError.BadRequest('Превышено количество попыток ввода кода. Пожалуйста, запросите новый код')
+  }
+
+  /**
+   * Отправление кода подтверждения на почту
+   * @param verificationCode 
+   */
   async requestCode(verificationCode: IVerificationCodeToCreate): Promise<void> {
     // данные для создания кода
     const { userId, type } = verificationCode
@@ -68,19 +77,107 @@ export class VerificationCodeService {
     await this.redis.set(codeKey, JSON.stringify(value), 'EX', VerificationCodeService.VERIFICATION_CODE_TTL_SECONDS)
     await this.redis.set(cooldownKey, '1', 'EX', VerificationCodeService.VERIFICATION_CODE_COOLDOWN_SECONDS)
 
-    await this.mailService.sendVerificationCode(user.email, code, type)
+    try {
+      await this.mailService.sendVerificationCode(user.email, code, type)
+    } catch (error) {
+      await this.redis.del(codeKey)
+      await this.redis.del(cooldownKey)
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения. Попробуйте позже')
+    }
+    
   }
 
+  /**
+   * Проверка кода подтверждения
+   * @param verificationCode 
+   * @returns 
+   */
   async verifyCode(verificationCode: IVerificationCodeToVerify): Promise<void> {
-    return
+    const { userId, code, type } = verificationCode
+
+    const user = await this.UserModel.findById(userId).lean()
+
+    if (!user)
+      throw ApiError.NotFound('Пользователь не найден')
+
+    // получаем код из redis
+    const codeKey = this.getCodeKey(userId, type)
+    
+    // получаем строку из redis по ключу
+    const codeDataString = await this.redis.get(codeKey)
+
+    // если строки нет, значит кода нет или он истек
+    if (!codeDataString)
+      throw ApiError.BadRequest('Код подтверждения не найден или истек')
+
+    let codeData: IVerificationCode
+
+    // пытаемся распарсить строку
+    try {
+      codeData = JSON.parse(codeDataString) as IVerificationCode
+    } catch (error) {
+      await this.redis.del(codeKey)
+      throw ApiError.BadRequest('Код подтверждения не найден или истек')
+    }
+
+    // если попыток ввода не осталось
+    if (codeData.attemptsLeft <= 0) {
+      await this.removeCodeNoAttemptsLeft(codeKey)
+    }
+
+    // сравниваем код из запроса с хэшем кода из redis
+    const isCodeValid = await bcrypt.compare(code, codeData.codeHash)
+
+    if (isCodeValid)
+      return
+
+    // если код не совпал, уменьшаем количество попыток и сохраняем обратно в redis
+    codeData.attemptsLeft -= 1
+
+    const ttl = await this.redis.ttl(codeKey)
+
+    if (ttl <= 0) {
+      await this.redis.del(codeKey)
+      throw ApiError.BadRequest('Код подтверждения не найден или истек')
+    }
+
+    if (codeData.attemptsLeft <= 0) {
+      await this.removeCodeNoAttemptsLeft(codeKey)
+    }
+    
+    await this.redis.set(codeKey, JSON.stringify(codeData), 'EX', ttl)
+
+    throw ApiError.BadRequest(`Неверный код подтверждения. Осталось попыток: ${codeData.attemptsLeft}`)
   }
 
+  /**
+   * Удаление кода после успешного использования
+   * @param userId 
+   * @param type 
+   */
   async consumeCode(userId: string, type: string): Promise<void> {
-    return
+    const user = await this.UserModel.findById(userId).lean()
+
+    if (!user)
+      throw ApiError.NotFound('Пользователь не найден')
+
+    const codeKey = this.getCodeKey(userId, type)
+    const codeExists = await this.redis.exists(codeKey)
+
+    if (!codeExists)
+      throw ApiError.BadRequest('Код подтверждения не найден или истек')
+
+    await this.redis.del(codeKey)
   }
 
+  /**
+   * Повторная отправка кода подтверждения
+   * @param verificationCode 
+   * @returns 
+   */
   async resendCode(verificationCode: IVerificationCodeToCreate): Promise<void> {
-    return
+    return await this.requestCode(verificationCode)
   }
 
   /**
@@ -127,9 +224,5 @@ export class VerificationCodeService {
       default:
         throw ApiError.BadRequest('Неверный тип кода')
     }
-  }
-
-  private getCodeValue(): IVerificationCode {
-    return {} as IVerificationCode
   }
 }
