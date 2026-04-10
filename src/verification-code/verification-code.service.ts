@@ -170,20 +170,12 @@ export class VerificationCodeService {
    * @returns 
    */
   private getCodeKey(userId: string, type: string): string {
-    const firstPath = `vc`
+    const types = Object.values(VCodeType)
 
-    switch (type) {
-      case VCodeType.REGISTER_EMAIL:
-        return `${firstPath}:${VCodeType.REGISTER_EMAIL}:${userId}`
-      case VCodeType.RESET_PASSWORD:
-        return `${firstPath}:${VCodeType.RESET_PASSWORD}:${userId}`
-      case VCodeType.ENABLE_2FA:
-        return `${firstPath}:${VCodeType.ENABLE_2FA}:${userId}`
-      case VCodeType.DISABLE_2FA:
-        return `${firstPath}:${VCodeType.DISABLE_2FA}:${userId}`
-      default:
-        throw ApiError.BadRequest('Неверный тип кода')
-    }
+    if (!types.includes(type as VCodeType))
+      throw ApiError.BadRequest('Неверный тип кода')
+
+    return `vc:${type}:${userId}`
   }
 
   /**
@@ -193,19 +185,11 @@ export class VerificationCodeService {
    * @returns 
    */
   private getCooldownKey(userId: string, type: string): string {
-    const firstPath = `vc:cooldown`
+    const types = Object.values(VCodeType)
 
-    switch (type) {
-      case VCodeType.REGISTER_EMAIL:
-        return `${firstPath}:${VCodeType.REGISTER_EMAIL}:${userId}`
-      case VCodeType.RESET_PASSWORD:
-        return `${firstPath}:${VCodeType.RESET_PASSWORD}:${userId}`
-      case VCodeType.ENABLE_2FA:
-        return `${firstPath}:${VCodeType.ENABLE_2FA}:${userId}`
-      case VCodeType.DISABLE_2FA:
-        return `${firstPath}:${VCodeType.DISABLE_2FA}:${userId}`
-      default:
-        throw ApiError.BadRequest('Неверный тип кода')
-    }
+    if (!types.includes(type as VCodeType))
+      throw ApiError.BadRequest('Неверный тип кода')
+
+    return `vc:cooldown:${type}:${userId}`
   }
 }

@@ -13,7 +13,9 @@ import { VerificationCodeService } from 'src/verification-code/verification-code
 import Redis from 'ioredis'
 import { VCodeType } from 'src/types/verification-code.type'
 import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
+import { VERIFICATION_CODE_TTL_SECONDS } from 'src/verification-code/constants/vc.constants'
 import { AuthMethod } from 'src/types/auth-method.type'
+import { MongoServerError } from 'mongodb'
 
 @Injectable()
 export class AuthService {
@@ -59,8 +61,12 @@ export class AuthService {
     }
   }
 
+  private normalizeEmail(email: string) {
+    return email.trim().toLowerCase()
+  }
+
   async registerByEmail(email: string) {
-    email = email.trim().toLowerCase()
+    email = this.normalizeEmail(email)
 
     const user = await this.UserModel.findOne({ email }).lean()
 
@@ -253,7 +259,7 @@ export class AuthService {
         authMethods: [AuthMethod.EMAIL_CODE],
       })
     } catch (error) {
-      if (error?.code === 11000) 
+      if (error instanceof MongoServerError && error.code === 11000) 
         throw ApiError.BadRequest(`Пользователь с почтой ${tempUser.email} уже существует`)
 
       throw ApiError.Internal('Не удалось создать пользователя. Попробуйте позже')
@@ -286,24 +292,211 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string) {
+  async loginByEmail(email: string) {
+    email = this.normalizeEmail(email)
+
     const user = await this.UserModel.findOne({ email })
 
     if (!user) {
       throw ApiError.BadRequest('Пользователь с таким email не найден')
     }
 
-    // сравниваем пароль из БД с паролем, который ввел пользователь
-    const isPassEquals = await bcrypt.compare(password, user.password)
+    await this.redis.set(
+      `login:email:${user._id}`,
+      JSON.stringify({
+        userId: user._id.toString(),
+        email,
+      }),
+      'EX',
+      VERIFICATION_CODE_TTL_SECONDS
+    )
 
-    if (!isPassEquals) {
-      throw ApiError.BadRequest('Неверный пароль')
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId: user._id.toString(),
+        email,
+        type: VCodeType.LOGIN_EMAIL,
+      })
+    } catch (error) {
+      await this.redis.del(`login:email:${user._id}`)
+
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Проверьте правильность введенной почты')
     }
 
-    // генерируем access и refresh токены для пользователя
-    const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
-    if (tokens?.refreshToken)
+    return {
+      loginTempId: user._id,
+      email,
+    }
+  }
+
+  async loginByEmailConfirm(loginTempId: string, code: string) {
+    const loginData = await this.redis.get(`login:email:${loginTempId}`)
+
+    if (!loginData)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+
+    let loginSession: {
+      userId: string,
+      email: string,
+    }
+
+    try {
+      loginSession = JSON.parse(loginData) as {
+        userId: string,
+        email: string,
+      }
+    } catch (error) {
+      await this.redis.del(`login:email:${loginTempId}`)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+    }
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId: loginTempId,
+      code,
+      type: VCodeType.LOGIN_EMAIL,
+    })
+
+    const user = await this.UserModel.findById(loginSession.userId)
+
+    if (!user) {
+      await this.redis.del(`login:email:${loginTempId}`)
+      throw ApiError.BadRequest('Пользователь не найден')
+    }
+
+    try {
+      const tokens = this.TokenService.generateTokens({
+        _id: user._id,
+        password: user.password,
+      })
+
+      if (!tokens.refreshToken || !tokens.accessToken)
+        throw ApiError.Internal('Не удалось сгенерировать токены')
+
       await this.TokenService.saveToken(tokens.refreshToken)
+
+      await this.verificationCodeService.consumeCode(
+        loginTempId,
+        VCodeType.LOGIN_EMAIL
+      )
+
+      await this.redis.del(`login:email:${loginTempId}`)
+
+      return {
+        ...tokens,
+        user: this.getSafeUser(user)
+      }
+    } catch (error) {
+      await this.redis.del(`login:email:${loginTempId}`)
+
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось завершить вход. Попробуйте позже')
+    }
+  }
+
+  async loginByPassword(email: string, password: string) {
+    email = this.normalizeEmail(email)
+
+    const user = await this.UserModel.findOne({ email })
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь с таким email не найден')
+
+    if (!user.password)
+      throw ApiError.BadRequest('У вас не установлен пароль. Войдите через код с почты')
+
+    const isPasswordValid = await bcrypt.compare(password, user.password)
+
+    if (!isPasswordValid)
+      throw ApiError.BadRequest('Неверный пароль')
+
+    const tokens = this.TokenService.generateTokens({
+      _id: user._id,
+      password: user.password,
+    })
+
+    if (!tokens.refreshToken || !tokens.accessToken)
+      throw ApiError.Internal('Не удалось сгенерировать токены')
+
+    await this.TokenService.saveToken(tokens.refreshToken)
+
+    return {
+      ...tokens,
+      user: this.getSafeUser(user)
+    }
+  }
+
+  async requestSetPasswordCode(userId: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    if (user.password)
+      throw ApiError.BadRequest('У вас уже установлен пароль')
+
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId: user._id.toString(),
+        email: user.email,
+        type: VCodeType.SET_PASSWORD,
+      })
+    } catch (error) {
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Попробуйте позже')
+    }
+
+    return {
+      userId: user._id,
+      email: user.email,
+    }
+  }
+
+  async setPassword(userId: string, code: string, password: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    if (user.password)
+      throw ApiError.BadRequest('У вас уже установлен пароль')
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId: userId,
+      code,
+      type: VCodeType.SET_PASSWORD,
+    })
+
+    this.validatePassword(password)
+
+    const hashPassword = await bcrypt.hash(password, 3)
+
+    user.password = hashPassword
+
+    user.authMethods.push(AuthMethod.PASSWORD)
+
+    await user.save()
+
+    const tokens = this.TokenService.generateTokens({
+      _id: user._id,
+      password: user.password,
+    })
+
+    if (!tokens.refreshToken || !tokens.accessToken)
+      throw ApiError.Internal('Не удалось сгенерировать токены')
+
+    await this.TokenService.saveToken(tokens.refreshToken)
+
+    await this.verificationCodeService.consumeCode(
+      userId,
+      VCodeType.SET_PASSWORD
+    )
 
     return {
       ...tokens,
