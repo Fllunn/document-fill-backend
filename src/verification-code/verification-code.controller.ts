@@ -3,6 +3,7 @@ import { VerificationCodeService } from './verification-code.service'
 import { IVerificationCodeToCreate } from './interfaces/IVerificationCodeToCreate'
 import { IVerificationCodeToVerify } from './interfaces/IVerificationCodeToVerify'
 import { Throttle } from '@nestjs/throttler'
+import { VCodeType } from 'src/types/verification-code.type'
 
 
 @Throttle({
@@ -29,8 +30,8 @@ export class VerificationCodeController {
   }
 
   @Post('consume')
-  async consumeCode(@Body('userId') userId: string, @Body('type') type: string) {
-    return await this.verificationCodeService.consumeCode(userId, type)
+  async consumeCode(@Body('tempUserId') tempUserId: string, @Body('type') type: VCodeType) {
+    return await this.verificationCodeService.consumeCode(tempUserId, type)
   }
 
   @Post('resend')

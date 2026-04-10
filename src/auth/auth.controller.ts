@@ -129,6 +129,15 @@ export class AuthController {
   }
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.CREATED)
+  @Post('register/email')
+  async registerByEmail(
+    @Body('email') email: string
+  ) {
+    return await this.AuthService.registerByEmail(email)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(

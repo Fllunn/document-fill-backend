@@ -1,14 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
+import { NAME_USER_MAX_LEN, NAME_USER_MIN_LEN } from '../constants/user.constants';
 
 export type UserDocument = HydratedDocument<UserClass>;
 
-@Schema()
+@Schema({ timestamps: true })
 export class UserClass {
   @Prop({
     type: String,
     required: true,
-    min: 2,
+    min: NAME_USER_MIN_LEN,
+    max: NAME_USER_MAX_LEN
   })
   name!: string;
 
@@ -21,9 +23,9 @@ export class UserClass {
 
   @Prop({
     type: String,
-    required: true,
+    required: false,
   })
-  password!: string;
+  password!: string | null;
 
   @Prop({
     type: Array,
@@ -40,18 +42,10 @@ export class UserClass {
   fileCount?: number;
 
   @Prop({
-    type: Boolean,
-    default: false,
-    required: false
+    type: Array,
+    required: true,
   })
-  isVerified!: boolean;
-
-  @Prop({
-    type: Boolean,
-    default: false,
-    required: false
-  })
-  isTwoFactorEnabled!: boolean;
+  authMethods!: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserClass);

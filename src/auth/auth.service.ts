@@ -9,18 +9,35 @@ import { UserFromClient } from 'src/user/interfaces/user-from-client.interface'
 import { RolesService } from 'src/roles/roles.service'
 import * as bcrypt from 'bcryptjs'
 import { MailService } from 'src/mail/mail.service'
+import { VerificationCodeService } from 'src/verification-code/verification-code.service' 
+import Redis from 'ioredis'
+import { VCodeType } from 'src/types/verification-code.type'
+import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
+import { AuthMethod } from 'src/types/auth-method.type'
 
 @Injectable()
 export class AuthService {
   private static readonly MIN_PASSWORD_LENGTH = 8
+
+  private readonly redis = new Redis({
+    host: process.env.REDIS_HOST,
+    port: Number(process.env.REDIS_PORT),
+    password: process.env.REDIS_PASSWORD || undefined,
+    db: Number(process.env.REDIS_DB ?? 0),
+  })
 
   constructor(
     @InjectModel('User') private UserModel: Model<UserClass>,
     private TokenService: TokenService,
     private RolesService: RolesService,
     private mailService: MailService,
+    private verificationCodeService: VerificationCodeService,
   ) { }
 
+  /**
+   * Проверка сложности пароля
+   * @param password 
+   */
   private validatePassword(password: string) {
     if (password.length < AuthService.MIN_PASSWORD_LENGTH)
       throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
@@ -38,39 +55,234 @@ export class AuthService {
       email: user.email,
       roles: user.roles,
       fileCount: user.fileCount,
-      isVerified: user.isVerified,
-      isTwoFactorEnabled: user.isTwoFactorEnabled,
+      authMethods: user.authMethods,
     }
   }
 
-  async registration(user: UserFromClient) {
-    // ищем пользователя с такой почтой, если есть, то выдаем ошибку
-    const candidate = await this.UserModel.findOne({ email: user.email })
+  async registerByEmail(email: string) {
+    email = email.trim().toLowerCase()
 
-    if (candidate)
-      throw ApiError.BadRequest(`Пользователь с почтой ${user.email} уже существует`)
+    const user = await this.UserModel.findOne({ email }).lean()
 
-    this.validatePassword(user.password)
+    if (user)
+      throw ApiError.BadRequest(`Пользователь с почтой ${email} уже существует`)
+    
+    const tempUserId = new mongoose.Types.ObjectId().toString()
 
-    // хэшируем пароль с помощью bcrypt
-    const password = await bcrypt.hash(user.password, 3)
+    const tempUser = {
+      provider: 'email',
+      email,
+      isVerified: false,
+      name: null,
+      createdAt: new Date().toISOString(),
+    }
 
-    const createdUser: UserDocument = await this.UserModel.create({
-      name: user.name,
-      email: user.email,
-      password,
-      roles: ['user'],
-    })
+    await this.redis.set(
+      `reg:temp:${tempUserId}`,
+      JSON.stringify(tempUser),
+      'EX',
+      5 * 60, // 5 минут
+    )
 
-    // генерируем access и refresh токены для нового пользователя
-    const tokens = this.TokenService.generateTokens({ _id: createdUser._id, password: createdUser.password })
-    // сохраняем refresh токен в redis
-    if (tokens.refreshToken)
-      await this.TokenService.saveToken(tokens.refreshToken)
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId,
+        email,
+        type: VCodeType.REGISTER_EMAIL,
+      })
+    } catch (error) {
+      if (error instanceof ApiError)
+        throw error
+      
+      await this.redis.del(`reg:temp:${tempUserId}`)
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Проверьте правильность введенной почты')
+    }
 
     return {
-      ...tokens,
-      user: this.getSafeUser(createdUser)
+      tempUserId,
+      email,
+      isVerified: false,
+    }
+  }
+
+  async registerByEmailConfirm(tempUserId: string, code: string) {
+    const tempUserData = await this.redis.get(`reg:temp:${tempUserId}`)
+    
+    if (!tempUserData)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+
+    let tempUser: {
+      provider: string,
+      email: string,
+      isVerified: boolean,
+      name: string | null,
+      createdAt: string,
+    }
+
+    try {
+      tempUser = JSON.parse(tempUserData) as {
+        provider: string,
+        email: string,
+        isVerified: boolean,
+        name: string | null,
+        createdAt: string,
+      }
+    } catch (error) {
+      await this.redis.del(`reg:temp:${tempUserId}`)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+    }
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId,
+      code,
+      type: VCodeType.REGISTER_EMAIL,
+    })
+
+    tempUser.isVerified = true
+
+    const ttl = await this.redis.ttl(`reg:temp:${tempUserId}`)
+
+    if (ttl <= 0) {
+      await this.redis.del(`reg:temp:${tempUserId}`)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+    }
+
+    await this.redis.set(
+      `reg:temp:${tempUserId}`,
+      JSON.stringify(tempUser),
+      'EX',
+      ttl,
+    )
+
+    await this.verificationCodeService.consumeCode(
+      tempUserId,
+      VCodeType.REGISTER_EMAIL
+    )
+
+    return {
+      tempUserId,
+      email: tempUser.email,
+      isVerified: tempUser.isVerified,
+    }
+  }
+
+  /**
+   * Проверка корректности имени пользователя
+   * @param name имя пользователя
+   */
+  private ValidateName(name: string) {
+    name = name.trim()
+
+    if (!name)
+      throw ApiError.BadRequest('Имя не может быть пустым')
+
+    if (name.length < NAME_USER_MIN_LEN)
+      throw ApiError.BadRequest(`Минимальная длина имени ${NAME_USER_MIN_LEN} символов`)
+
+    if (name.length > NAME_USER_MAX_LEN)
+      throw ApiError.BadRequest(`Максимальная длина имени ${NAME_USER_MAX_LEN} символов`)
+
+    return name
+  }
+
+
+
+  /**
+   * Проверка уникальности почты
+   * @param email 
+   */
+  private async checkUniqueEmail(email: string) {
+    const user = await this.UserModel.findOne({ email }).lean()
+
+    if (user)
+      throw ApiError.BadRequest(`Пользователь с почтой ${email} уже существует`)
+  }
+
+  async registerProfile(tempUserId: string, name: string){
+    name = this.ValidateName(name)
+
+    const tempUserData = await this.redis.get(`reg:temp:${tempUserId}`)
+
+    if (!tempUserData)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+
+    let tempUser: {
+      provider: string,
+      email: string,
+      isVerified: boolean,
+      name: string | null,
+      createdAt: string,
+    }
+
+    // пробуем достать данные из redis
+    try {
+      tempUser = JSON.parse(tempUserData) as {
+        provider: string,
+        email: string,
+        isVerified: boolean,
+        name: string | null,
+        createdAt: string,
+      }
+    } catch (error) {
+      await this.redis.del(`reg:temp:${tempUserId}`)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+    }
+
+    if (!tempUser.isVerified)
+      throw ApiError.BadRequest('Почта не подтверждена')
+
+    const ttl = await this.redis.ttl(`reg:temp:${tempUserId}`)
+
+    if (ttl <= 0) {
+      await this.redis.del(`reg:temp:${tempUserId}`)
+      throw ApiError.BadRequest('Пользователь не найден или код подтверждения истек')
+    }
+
+    await this.checkUniqueEmail(tempUser.email)
+
+    tempUser.name = name
+    let createdUser: UserDocument
+
+    try {
+      createdUser = await this.UserModel.create({
+        name,
+        email: tempUser.email,
+        password: null,
+        roles: ['user'],
+        authMethods: [AuthMethod.EMAIL_CODE],
+      })
+    } catch (error) {
+      if (error?.code === 11000) 
+        throw ApiError.BadRequest(`Пользователь с почтой ${tempUser.email} уже существует`)
+
+      throw ApiError.Internal('Не удалось создать пользователя. Попробуйте позже')
+    }
+
+    try {
+      const tokens = this.TokenService.generateTokens({
+        _id: createdUser._id,
+        password: createdUser.password,
+      })
+
+      if (!tokens.refreshToken || !tokens.accessToken)
+        throw ApiError.Internal('Не удалось сгенерировать токены')
+
+      await this.TokenService.saveToken(tokens.refreshToken)
+
+      await this.redis.del(`reg:temp:${tempUserId}`)
+
+      return {
+        ...tokens,
+        user: this.getSafeUser(createdUser)
+      }
+    } catch (error) {
+      await this.UserModel.findByIdAndDelete(createdUser._id)
+
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось завершить регистрацию. Попробуйте позже')
     }
   }
 

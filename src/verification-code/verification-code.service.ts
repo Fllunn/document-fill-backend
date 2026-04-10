@@ -10,15 +10,11 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model } from 'mongoose'
 import { UserClass } from 'src/user/schemas/user.schema'
 import { randomInt } from 'crypto'
+import { VCodeType } from 'src/types/verification-code.type'
 
 
 @Injectable()
 export class VerificationCodeService {
-  private static readonly EMAIL_VERIFICATION_TYPE = 'email-verification'
-  private static readonly PASSWORD_RESET_TYPE = 'password-reset'
-  private static readonly ENABLE_TWO_FACTOR_TYPE = 'enable-2fa'
-  private static readonly DISABLE_TWO_FACTOR_TYPE = 'disable-2fa'
-
   private static readonly VERIFICATION_CODE_LENGTH = Number(process.env.VERIFICATION_CODE_LENGTH ?? 6)
   private static readonly VERIFICATION_CODE_ATTEMPTS = Number(process.env.VERIFICATION_CODE_ATTEMPTS ?? 5)
   private static readonly VERIFICATION_CODE_TTL_SECONDS = Number(process.env.VERIFICATION_CODE_TTL_SECONDS ?? 600)
@@ -46,22 +42,16 @@ export class VerificationCodeService {
    * @param verificationCode 
    */
   async requestCode(verificationCode: IVerificationCodeToCreate): Promise<void> {
-    // данные для создания кода
-    const { userId, type } = verificationCode
+    const { tempUserId, email, type } = verificationCode
 
-    const codeKey = this.getCodeKey(userId, type)
-    const cooldownKey = this.getCooldownKey(userId, type)
+    const codeKey = this.getCodeKey(tempUserId, type)
+    const cooldownKey = this.getCooldownKey(tempUserId, type)
 
     const cooldownExists = await this.redis.exists(cooldownKey)
 
     // если код недавно отправлялся, не разрешаем отправлять новый
     if (cooldownExists)
       throw ApiError.BadRequest('Код уже был отправлен. Попробуйте позже')
-
-    const user = await this.UserModel.findById(userId).lean()
-
-    if (!user)
-      throw ApiError.NotFound('Пользователь не найден')
 
     const min = 10 ** (VerificationCodeService.VERIFICATION_CODE_LENGTH - 1)
     const max = 10 ** VerificationCodeService.VERIFICATION_CODE_LENGTH - 1
@@ -78,7 +68,7 @@ export class VerificationCodeService {
     await this.redis.set(cooldownKey, '1', 'EX', VerificationCodeService.VERIFICATION_CODE_COOLDOWN_SECONDS)
 
     try {
-      await this.mailService.sendVerificationCode(user.email, code, type)
+      await this.mailService.sendVerificationCode(email, code, type)
     } catch (error) {
       await this.redis.del(codeKey)
       await this.redis.del(cooldownKey)
@@ -94,15 +84,10 @@ export class VerificationCodeService {
    * @returns 
    */
   async verifyCode(verificationCode: IVerificationCodeToVerify): Promise<void> {
-    const { userId, code, type } = verificationCode
-
-    const user = await this.UserModel.findById(userId).lean()
-
-    if (!user)
-      throw ApiError.NotFound('Пользователь не найден')
+    const { tempUserId, code, type } = verificationCode
 
     // получаем код из redis
-    const codeKey = this.getCodeKey(userId, type)
+    const codeKey = this.getCodeKey(tempUserId, type)
     
     // получаем строку из redis по ключу
     const codeDataString = await this.redis.get(codeKey)
@@ -111,7 +96,10 @@ export class VerificationCodeService {
     if (!codeDataString)
       throw ApiError.BadRequest('Код подтверждения не найден или истек')
 
-    let codeData: IVerificationCode
+    let codeData: {
+      codeHash: string,
+      attemptsLeft: number
+    }
 
     // пытаемся распарсить строку
     try {
@@ -153,16 +141,11 @@ export class VerificationCodeService {
 
   /**
    * Удаление кода после успешного использования
-   * @param userId 
+   * @param tempUserId 
    * @param type 
    */
-  async consumeCode(userId: string, type: string): Promise<void> {
-    const user = await this.UserModel.findById(userId).lean()
-
-    if (!user)
-      throw ApiError.NotFound('Пользователь не найден')
-
-    const codeKey = this.getCodeKey(userId, type)
+  async consumeCode(tempUserId: string, type: string): Promise<void> {
+    const codeKey = this.getCodeKey(tempUserId, type)
     const codeExists = await this.redis.exists(codeKey)
 
     if (!codeExists)
@@ -190,14 +173,14 @@ export class VerificationCodeService {
     const firstPath = `vc`
 
     switch (type) {
-      case VerificationCodeService.EMAIL_VERIFICATION_TYPE:
-        return `${firstPath}:${VerificationCodeService.EMAIL_VERIFICATION_TYPE}:${userId}`
-      case VerificationCodeService.PASSWORD_RESET_TYPE:
-        return `${firstPath}:${VerificationCodeService.PASSWORD_RESET_TYPE}:${userId}`
-      case VerificationCodeService.ENABLE_TWO_FACTOR_TYPE:
-        return `${firstPath}:${VerificationCodeService.ENABLE_TWO_FACTOR_TYPE}:${userId}`
-      case VerificationCodeService.DISABLE_TWO_FACTOR_TYPE:
-        return `${firstPath}:${VerificationCodeService.DISABLE_TWO_FACTOR_TYPE}:${userId}`
+      case VCodeType.REGISTER_EMAIL:
+        return `${firstPath}:${VCodeType.REGISTER_EMAIL}:${userId}`
+      case VCodeType.RESET_PASSWORD:
+        return `${firstPath}:${VCodeType.RESET_PASSWORD}:${userId}`
+      case VCodeType.ENABLE_2FA:
+        return `${firstPath}:${VCodeType.ENABLE_2FA}:${userId}`
+      case VCodeType.DISABLE_2FA:
+        return `${firstPath}:${VCodeType.DISABLE_2FA}:${userId}`
       default:
         throw ApiError.BadRequest('Неверный тип кода')
     }
@@ -213,14 +196,14 @@ export class VerificationCodeService {
     const firstPath = `vc:cooldown`
 
     switch (type) {
-      case VerificationCodeService.EMAIL_VERIFICATION_TYPE:
-        return `${firstPath}:${VerificationCodeService.EMAIL_VERIFICATION_TYPE}:${userId}`
-      case VerificationCodeService.PASSWORD_RESET_TYPE:
-        return `${firstPath}:${VerificationCodeService.PASSWORD_RESET_TYPE}:${userId}`
-      case VerificationCodeService.ENABLE_TWO_FACTOR_TYPE:
-        return `${firstPath}:${VerificationCodeService.ENABLE_TWO_FACTOR_TYPE}:${userId}`
-      case VerificationCodeService.DISABLE_TWO_FACTOR_TYPE:
-        return `${firstPath}:${VerificationCodeService.DISABLE_TWO_FACTOR_TYPE}:${userId}`
+      case VCodeType.REGISTER_EMAIL:
+        return `${firstPath}:${VCodeType.REGISTER_EMAIL}:${userId}`
+      case VCodeType.RESET_PASSWORD:
+        return `${firstPath}:${VCodeType.RESET_PASSWORD}:${userId}`
+      case VCodeType.ENABLE_2FA:
+        return `${firstPath}:${VCodeType.ENABLE_2FA}:${userId}`
+      case VCodeType.DISABLE_2FA:
+        return `${firstPath}:${VCodeType.DISABLE_2FA}:${userId}`
       default:
         throw ApiError.BadRequest('Неверный тип кода')
     }

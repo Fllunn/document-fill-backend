@@ -11,13 +11,15 @@ import { MailService } from 'src/mail/mail.service';
 import UserModel from 'src/user/models/user.model';
 import { MailModule } from 'src/mail/mail.module';
 import { AuthGuard } from './auth.guard';
+import { VerificationCodeModule } from 'src/verification-code/verification-code.module';
 
 @Module({
   imports: [
     TokenModule,
     JwtModule,
     UserModel,
-    MailModule
+    MailModule,
+    VerificationCodeModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, RolesService, AuthGuard],

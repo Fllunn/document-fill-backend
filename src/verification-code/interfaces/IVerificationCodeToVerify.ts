@@ -1,5 +1,12 @@
+import { VCodeType } from 'src/types/verification-code.type'
+
+/**
+ ** tempUserId
+ ** code
+ ** type
+ */
 export interface IVerificationCodeToVerify {
-  userId: string
+  tempUserId: string
   code: string
-  type: string
+  type: VCodeType
 }
