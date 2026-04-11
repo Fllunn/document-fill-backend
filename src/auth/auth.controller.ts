@@ -232,7 +232,40 @@ export class AuthController {
     return userData.user
   }
 
-  
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('password/change/request-code')
+  async requestChangePasswordCode(
+    @Body('userId') userId: string
+  ) {
+    return await this.AuthService.requestChangePasswordCode(userId)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('password/change')
+  async changePassword(
+    @Res({ passthrough: true }) res: Response,
+    @Body('userId') userId: string,
+    @Body('code') code: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    const userData = await this.AuthService.changePassword(userId, code, newPassword)
+
+    res
+    .cookie(
+      'refreshToken',
+      userData.refreshToken,
+      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+    )
+    .cookie(
+      'token',
+      userData.accessToken,
+      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+    )
+
+    return userData.user
+  }
 
   @Throttle(REFRESH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
