@@ -504,6 +504,213 @@ export class AuthService {
     }
   }
 
+  async requestChangePasswordCode(userId: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    if (!user.password)
+      throw ApiError.BadRequest('У вас не установлен пароль')
+
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId: user._id.toString(),
+        email: user.email,
+        type: VCodeType.CHANGE_PASSWORD,
+      })
+    } catch (error) {
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Попробуйте позже')
+    }
+
+    return {
+      userId: user._id,
+      email: user.email,
+    }
+  }
+
+  async changePassword(userId: string, code: string, newPassword: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    if (!user.password)
+      throw ApiError.BadRequest('У вас не установлен пароль')
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId: userId,
+      code,
+      type: VCodeType.CHANGE_PASSWORD,
+    })
+
+    this.validatePassword(newPassword)
+
+    const hashPassword = await bcrypt.hash(newPassword, 3)
+
+    user.password = hashPassword
+
+    await user.save()
+
+    const tokens = this.TokenService.generateTokens({
+      _id: user._id,
+      password: user.password,
+    })
+
+    if (!tokens.refreshToken || !tokens.accessToken)
+      throw ApiError.Internal('Не удалось сгенерировать токены')
+
+    await this.TokenService.saveToken(tokens.refreshToken)
+
+    await this.verificationCodeService.consumeCode(
+      userId,
+      VCodeType.CHANGE_PASSWORD
+    )
+
+    return {
+      ...tokens,
+      user: this.getSafeUser(user)
+    }
+  }
+
+  async requestChangeCurrentEmailCode(userId: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId: user._id.toString(),
+        email: user.email,
+        type: VCodeType.CHANGE_CURRENT_EMAIL,
+      })
+    } catch (error) {
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Попробуйте позже')
+    }
+
+    return {
+      userId: user._id,
+      email: user.email,
+    }
+  }
+
+  async confirmCurrentEmail(userId: string, code: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId: userId,
+      code,
+      type: VCodeType.CHANGE_CURRENT_EMAIL,
+    })
+
+    await this.redis.set(
+      `change:email:${userId}`,
+      JSON.stringify({
+        currentEmailVerified: true,
+        newEmail: null,
+      }),
+      'EX',
+      VERIFICATION_CODE_TTL_SECONDS
+    )
+
+    await this.verificationCodeService.consumeCode(
+      userId,
+      VCodeType.CHANGE_CURRENT_EMAIL
+    )
+
+    return {
+      userId: user._id,
+      email: user.email,
+    }
+  }
+
+  async requestChangeNewEmailCode(userId: string, newEmail: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    // подтверждена ли текущая почта
+    const emailChangeData = await this.redis.get(`change:email:${userId}`)
+
+    if (!emailChangeData)
+      throw ApiError.BadRequest('Сперва нужно подтвердить текущую почту')
+
+    let changeEmailSession: {
+      currentEmailVerified: boolean,
+      newEmail: string | null,
+    }
+
+    try {
+      changeEmailSession = JSON.parse(emailChangeData) as {
+        currentEmailVerified: boolean,
+        newEmail: string | null,
+      }
+    } catch (error) {
+      await this.redis.del(`change:email:${userId}`)
+
+      throw ApiError.BadRequest('Сессия смены почты истекла')
+    }
+
+    if (!changeEmailSession.currentEmailVerified)
+      throw ApiError.BadRequest('Сперва нужно подтвердить текущую почту')
+
+    newEmail = this.normalizeEmail(newEmail)
+
+    if (user.email === newEmail)
+      throw ApiError.BadRequest('Новая почта не может совпадать с текущей')
+
+    const userNewEmail = await this.UserModel.findOne({ email: newEmail })
+
+    if (userNewEmail)
+      throw ApiError.BadRequest('Пользователь с такой почтой уже существует')
+
+    try {
+      await this.verificationCodeService.requestCode({
+        tempUserId: user._id.toString(),
+        email: newEmail,
+        type: VCodeType.CHANGE_NEW_EMAIL,
+      })
+    } catch (error) {
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Не удалось отправить код подтверждения на новую почту. Попробуйте позже')
+    }
+
+    const ttl = await this.redis.ttl(`change:email:${userId}`)
+
+    if (ttl <= 0) {
+      await this.redis.del(`change:email:${userId}`)
+      throw ApiError.BadRequest('Сессия смены почты истекла')
+    }
+
+    await this.redis.set(
+      `change:email:${userId}`,
+      JSON.stringify({
+        currentEmailVerified: true,
+        newEmail,
+      }),
+      'EX',
+      ttl,
+    )
+
+    return {
+      userId: user._id,
+      newEmail,
+    }
+  }
+
   /**
    * Обновление access токена с помощью refresh токена
    * @param refreshToken 
