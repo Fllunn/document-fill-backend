@@ -23,6 +23,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model, Types } from 'mongoose';
 import { UserClass } from 'src/user/schemas/user.schema';
 
+import { ApiBody, ApiOperation } from '@nestjs/swagger';
+
 // стандартные настройки для Throttle
 const AUTH_THROTTLE_OPTIONS = {
   default: {
@@ -97,6 +99,19 @@ export class AuthController {
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.CREATED)
   @Post('register/email')
+  @ApiOperation({
+    summary: 'Регистрация с помощью почты',
+    description: '',
+
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', example: 'user@example.com' },
+      },
+    },
+  })
   async registerByEmail(
     @Body('email') email: string
   ) {

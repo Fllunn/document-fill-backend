@@ -57,21 +57,33 @@ export class MailService {
     let title = ''
 
     switch (type) {
-      case 'email-verification':
-        subject = `${this.APP_NAME}: код для подтверждения почты`
-        title = 'Ваш код для подтверждения почты'
+      case 'register-email':
+        subject = `${this.APP_NAME}: код для регистрации`
+        title = 'Ваш код для регистрации'
         break
-      case 'password-reset':
+      case 'login-email':
+        subject = `${this.APP_NAME}: код для входа`
+        title = 'Ваш код для входа'
+        break
+      case 'change-current-email':
+        subject = `${this.APP_NAME}: код для подтверждения текущей почты`
+        title = 'Ваш код для подтверждения текущей почты'
+        break
+      case 'change-new-email':
+        subject = `${this.APP_NAME}: код для подтверждения новой почты`
+        title = 'Ваш код для подтверждения новой почты'
+        break
+      case 'set-password':
+        subject = `${this.APP_NAME}: код для установки пароля`
+        title = 'Ваш код для установки пароля'
+        break
+      case 'change-password':
+        subject = `${this.APP_NAME}: код для смены пароля`
+        title = 'Ваш код для смены пароля'
+        break
+      case 'reset-password':
         subject = `${this.APP_NAME}: код для сброса пароля`
         title = 'Ваш код для сброса пароля'
-        break
-      case 'enable-2fa':
-        subject = `${this.APP_NAME}: код для включения двухфакторной аутентификации`
-        title = 'Ваш код для включения двухфакторной аутентификации'
-        break
-      case 'disable-2fa':
-        subject = `${this.APP_NAME}: код для отключения двухфакторной аутентификации`
-        title = 'Ваш код для отключения двухфакторной аутентификации'
         break
       default:
         throw ApiError.BadRequest('Неверный тип кода')
