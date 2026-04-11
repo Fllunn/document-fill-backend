@@ -45,7 +45,7 @@ export class AuthService {
       throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
   }
 
-  private async getUserOrThrow(userId: string) Promise<UserDocument> {
+  private async getUserOrThrow(userId: string): Promise<UserDocument> {
     const user = await this.UserModel.findById(userId)
 
     if (!user)
@@ -806,7 +806,7 @@ export class AuthService {
       throw ApiError.BadRequest('Пользователь с таким _id не найден')
 
     // секрет для reset токена = это JWT_RESET_SECRET + пароль пользователя
-    let secret = process.env.JWT_RESET_SECRET + candidate.password
+    let secret = process.env.JWT_RESET_SECRET! + candidate.password
 
     // проверить валидность reset токена
     let result = this.TokenService.validateResetToken(token, secret)
@@ -847,31 +847,6 @@ export class AuthService {
       ...tokens,
       user: this.getSafeUser(user)
     }
-  }
-
-  /**
-   * Отправка ссылки для сброса пароля
-   * @param email 
-   * @returns link
-   */
-  async sendResetLink(email: string) {
-    let candidate = await this.UserModel.findOne({ email })
-    if (!candidate)
-      throw ApiError.BadRequest('Пользователь с таким email не найден')
-
-    // секрет для reset токена = это JWT_RESET_SECRET + пароль пользователя
-    const secret = process.env.JWT_RESET_SECRET + candidate.password
-    
-    // создать reset токен
-    const token = this.TokenService.createResetToken({ _id: candidate._id, password: candidate.password }, secret)
-
-    // создать ссылку для сброса пароля: CLIENT_URL/forgot-password?userId=...&token=...
-    const link = process.env.CLIENT_URL + `/forgot-password?userId=${candidate._id}&token=${token}`
-
-    // отправить ссылку на почту пользователя
-    await this.mailService.sendResetLink(link, email)
-
-    return true
   }
 
   /**
