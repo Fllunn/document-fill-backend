@@ -267,6 +267,45 @@ export class AuthController {
     return userData.user
   }
 
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('email/change/current/request-code')
+  async requestChangeCurrentEmailCode(
+    @Body('userId') userId: string
+  ) {
+    return await this.AuthService.requestChangeCurrentEmailCode(userId)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('email/change/current/confirm')
+  async confirmChangeCurrentEmail(
+    @Body('userId') userId: string,
+    @Body('code') code: string,
+  ) {
+    return await this.AuthService.confirmCurrentEmail(userId, code)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('email/change/new/request-code')
+  async requestChangeNewEmailCode(
+    @Body('userId') userId: string,
+    @Body('newEmail') newEmail: string,
+  ) {
+    return await this.AuthService.requestChangeNewEmailCode(userId, newEmail)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('email/change/new/confirm')
+  async confirmChangeNewEmail(
+    @Body('userId') userId: string,
+    @Body('code') code: string,
+  ) {
+    return await this.AuthService.confirmNewEmail(userId, code)
+  }
+
   @Throttle(REFRESH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Get('refresh')
@@ -299,30 +338,6 @@ export class AuthController {
     res.send()
   }
 
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @Post('reset-password')
-  async resetPassword(
-    @Res() res: Response,
-    @Body('password') password: string,
-    @Body('token') token: string,
-    @Body('userId') userId: string,
-  ) {
-    const userData = await this.AuthService.resetPassword(password, token, userId)
-
-    res
-      .cookie(
-        'refreshToken',
-        userData.refreshToken,
-        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-      )
-      .cookie(
-        'token',
-        userData.accessToken,
-        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
-      )
-      .json(userData.user)
-  }
-
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('update')
@@ -331,11 +346,5 @@ export class AuthController {
     @Req() req: RequestWithUser,
   ) {
     return await this.AuthService.update(newUser, req.user._id)
-  }
-
-  @HttpCode(HttpStatus.OK)
-  @Post('send-reset-link')
-  async sendResetLink(@Body('email') email: string) {
-    return await this.AuthService.sendResetLink(email)
   }
 }
