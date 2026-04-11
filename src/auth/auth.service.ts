@@ -45,7 +45,7 @@ export class AuthService {
       throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
   }
 
-  private async getUserOrThrow(userId: string) {
+  private async getUserOrThrow(userId: string) Promise<UserDocument> {
     const user = await this.UserModel.findById(userId)
 
     if (!user)
@@ -335,9 +335,12 @@ export class AuthService {
       throw ApiError.Internal('Не удалось отправить код подтверждения на почту. Проверьте правильность введенной почты')
     }
 
+    const hasPassword = Boolean(user.password)
+
     return {
       loginTempId: user._id,
       email,
+      hasPassword,
     }
   }
 
@@ -440,7 +443,7 @@ export class AuthService {
   }
 
   async requestSetPasswordCode(userId: string) {
-    const user = this.getUserOrThrow(userId)
+    const user = await this.getUserOrThrow(userId)
 
     if (user.password)
       throw ApiError.BadRequest('У вас уже установлен пароль')

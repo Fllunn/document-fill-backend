@@ -96,40 +96,6 @@ export class AuthController {
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.CREATED)
-  @Post('registration')
-  async registration(
-    @Res({ passthrough: true }) res: Response,
-    @Body() user: UserFromClient,
-  ) {
-    // регистрация нового пользователя + генерация токенов
-    const userData = await this.AuthService.registration(user)
-
-    // в проде отправляем письмо с подтверждением регистрации
-    if (process.env.NODE_ENV === 'production') {
-      try {
-        await this.mailService.sendUserConfirmation(user)
-      } catch (error) {
-        console.error('Ошибка при отправке письма с подтверждением регистрации:', error)
-      }
-    }
-
-    // сохраняем refreshToken и accessToken в куки
-    res
-      .cookie(
-        'refreshToken',
-        userData.refreshToken,
-        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-      )
-      .cookie(
-        'token',
-        userData.accessToken,
-        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
-      )
-      .json(userData.user)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.CREATED)
   @Post('register/email')
   async registerByEmail(
     @Body('email') email: string
@@ -138,29 +104,135 @@ export class AuthController {
   }
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.CREATED)
+  @Post('register/email/confirm')
+  async registerByEmailConfirm(
+    @Body('tempUserId') tempUserId: string,
+    @Body('code') code: string,
+  ) {
+    return await this.AuthService.registerByEmailConfirm(tempUserId, code)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.CREATED)
+  @Post('register/profile')
+  async registerProfile(
+    @Res({ passthrough: true }) res: Response,
+    @Body('tempUserId') tempUserId: string,
+    @Body('name') name: string,
+  ) {
+    const userData = await this.AuthService.registerProfile(tempUserId, name)
+
+    res
+    .cookie(
+      'refreshToken',
+      userData.refreshToken,
+      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+    )
+    .cookie(
+      'token',
+      userData.accessToken,
+      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+    )
+
+    return userData.user
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
-  @Post('login')
-  async login(
+  @Post('login/email')
+  async loginByEmail(
+    @Body('email') email: string
+  ) {
+    return await this.AuthService.loginByEmail(email)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('login/email/confirm')
+  async loginByEmailConfirm(
+    @Res({ passthrough: true }) res: Response,
+    @Body('loginTempId') loginTempId: string,
+    @Body('code') code: string,
+  ) {
+    const userData = await this.AuthService.loginByEmailConfirm(loginTempId, code)
+
+    res
+    .cookie(
+      'refreshToken',
+      userData.refreshToken,
+      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+    )
+    .cookie(
+      'token',
+      userData.accessToken,
+      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+    )
+
+    return userData.user
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('login/password')
+  async loginByPassword(
     @Res({ passthrough: true }) res: Response,
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
-    // авторизация пользователя + генерация токенов
-    const userData = await this.AuthService.login(email, password)
+    const userData = await this.AuthService.loginByPassword(email, password)
+    
+    res
+    .cookie(
+      'refreshToken',
+      userData.refreshToken,
+      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+    )
+    .cookie(
+      'token',
+      userData.accessToken,
+      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+    )
+
+    return userData.user
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('password/set/request-code')
+  async requestSetPasswordCode(
+    @Body('userId') userId: string
+  ) {
+    return await this.AuthService.requestSetPasswordCode(userId)
+  }
+
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Post('password/set')
+  async setPassword(
+    @Res({ passthrough: true }) res: Response,
+    @Body('userId') userId: string,
+    @Body('code') code: string,
+    @Body('password') password: string,
+  ) {
+    const userData = await this.AuthService.setPassword(userId, code, password)
 
     res
-      .cookie(
-        'refreshToken',
-        userData.refreshToken,
-        this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-      )
-      .cookie(
-        'token',
-        userData.accessToken,
-        this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
-      )
-      .json(userData.user)
+    .cookie(
+      'refreshToken',
+      userData.refreshToken,
+      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
+    )
+    .cookie(
+      'token',
+      userData.accessToken,
+      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
+    )
+
+    return userData.user
   }
+
+  
 
   @Throttle(REFRESH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
