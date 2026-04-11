@@ -45,6 +45,15 @@ export class AuthService {
       throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
   }
 
+  private async getUserOrThrow(userId: string) {
+    const user = await this.UserModel.findById(userId)
+
+    if (!user)
+      throw ApiError.BadRequest('Пользователь не найден')
+
+    return user
+  }
+
   /**
    * Получение объекта пользователя без пароля
    * @param user 
@@ -431,10 +440,7 @@ export class AuthService {
   }
 
   async requestSetPasswordCode(userId: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = this.getUserOrThrow(userId)
 
     if (user.password)
       throw ApiError.BadRequest('У вас уже установлен пароль')
@@ -459,10 +465,7 @@ export class AuthService {
   }
 
   async setPassword(userId: string, code: string, password: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = await this.getUserOrThrow(userId)
 
     if (user.password)
       throw ApiError.BadRequest('У вас уже установлен пароль')
@@ -505,10 +508,7 @@ export class AuthService {
   }
 
   async requestChangePasswordCode(userId: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = await this.getUserOrThrow(userId)
 
     if (!user.password)
       throw ApiError.BadRequest('У вас не установлен пароль')
@@ -533,10 +533,7 @@ export class AuthService {
   }
 
   async changePassword(userId: string, code: string, newPassword: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = await this.getUserOrThrow(userId)
 
     if (!user.password)
       throw ApiError.BadRequest('У вас не установлен пароль')
@@ -577,10 +574,7 @@ export class AuthService {
   }
 
   async requestChangeCurrentEmailCode(userId: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = await this.getUserOrThrow(userId)
 
     try {
       await this.verificationCodeService.requestCode({
@@ -602,10 +596,7 @@ export class AuthService {
   }
 
   async confirmCurrentEmail(userId: string, code: string) {
-    const user = await this.UserModel.findById(userId)
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
+    const user = await this.getUserOrThrow(userId)
 
     await this.verificationCodeService.verifyCode({
       tempUserId: userId,
@@ -634,37 +625,39 @@ export class AuthService {
     }
   }
 
-  async requestChangeNewEmailCode(userId: string, newEmail: string) {
-    const user = await this.UserModel.findById(userId)
+  /**
+   * Получение сессии redis для смены почты и проверка, подтверждена ли текущая почта
+   * @param userId 
+   * @returns session
+   */
+  private async getChangeEmailSessionOrThrow(userId: string) {
+    const sessionData = await this.redis.get(`change:email:${userId}`)
 
-    if (!user)
-      throw ApiError.BadRequest('Пользователь не найден')
-
-    // подтверждена ли текущая почта
-    const emailChangeData = await this.redis.get(`change:email:${userId}`)
-
-    if (!emailChangeData)
+    if (!sessionData)
       throw ApiError.BadRequest('Сперва нужно подтвердить текущую почту')
 
-    let changeEmailSession: {
+    let session: {
       currentEmailVerified: boolean,
       newEmail: string | null,
     }
 
     try {
-      changeEmailSession = JSON.parse(emailChangeData) as {
+      session = JSON.parse(sessionData) as {
         currentEmailVerified: boolean,
         newEmail: string | null,
       }
     } catch (error) {
       await this.redis.del(`change:email:${userId}`)
-
       throw ApiError.BadRequest('Сессия смены почты истекла')
     }
 
-    if (!changeEmailSession.currentEmailVerified)
+    if (!session.currentEmailVerified)
       throw ApiError.BadRequest('Сперва нужно подтвердить текущую почту')
 
+    return session
+  }
+
+  private async validateNewEmail(user: UserDocument, newEmail: string) {
     newEmail = this.normalizeEmail(newEmail)
 
     if (user.email === newEmail)
@@ -674,6 +667,17 @@ export class AuthService {
 
     if (userNewEmail)
       throw ApiError.BadRequest('Пользователь с такой почтой уже существует')
+
+    return newEmail
+  }
+
+  async requestChangeNewEmailCode(userId: string, newEmail: string) {
+    const user = await this.getUserOrThrow(userId)
+
+    // подтверждена ли текущая почта
+    await this.getChangeEmailSessionOrThrow(userId)
+
+    newEmail = await this.validateNewEmail(user, newEmail)
 
     try {
       await this.verificationCodeService.requestCode({
@@ -709,6 +713,39 @@ export class AuthService {
       userId: user._id,
       newEmail,
     }
+  }
+
+  async confirmNewEmail(userId: string, code: string) {
+    const user = await this.getUserOrThrow(userId)
+
+    const session = await this.getChangeEmailSessionOrThrow(userId)
+
+    if (!session.newEmail)
+      throw ApiError.BadRequest('Сперва нужно ввести новую почту и запросить код подтверждения')
+
+    await this.verificationCodeService.verifyCode({
+      tempUserId: userId,
+      code,
+      type: VCodeType.CHANGE_NEW_EMAIL,
+    })
+
+    const userNewEmail = await this.UserModel.findOne({ email: session.newEmail })
+
+    if (userNewEmail && userNewEmail._id.toString() !== userId)
+      throw ApiError.BadRequest('Пользователь с такой почтой уже существует')
+
+    user.email = session.newEmail
+
+    await user.save()
+
+    await this.verificationCodeService.consumeCode(
+      userId,
+      VCodeType.CHANGE_NEW_EMAIL
+    )
+
+    await this.redis.del(`change:email:${userId}`)
+
+    return this.getSafeUser(user)
   }
 
   /**
