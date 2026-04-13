@@ -23,7 +23,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model, Types } from 'mongoose';
 import { UserClass } from 'src/user/schemas/user.schema';
 
-import { ApiBody, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiCookieAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger'
+
 import { REFRESH_TOKEN_TTL_SECONDS, ACCESS_TOKEN_TTL_SECONDS } from 'src/token/constants/token.constants';
 
 // стандартные настройки для Throttle
@@ -49,6 +56,7 @@ const REFRESH_TOKEN_MAX_AGE = REFRESH_TOKEN_TTL_SECONDS * 1000
 const ACCESS_TOKEN_MAX_AGE = ACCESS_TOKEN_TTL_SECONDS * 1000
 
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -96,6 +104,25 @@ export class AuthController {
     res.clearCookie('refreshToken', cookieOptions).clearCookie('token', cookieOptions)
   }
 
+  @ApiOperation({
+    summary: 'Регистрация пользователя по почте и паролю',
+    description: 'Создает пользователя, выдает access и refresh токены в куки, возвращает данные пользователя',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email', 'name', 'password'],
+      properties: {
+        email: { type: 'string', example: 'example@gmail.com' },
+        name: { type: 'string', example: 'Игорь' },
+        password: { type: 'string', example: '12345678' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Пользователь успешно зарегистрирован',
+  })
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.CREATED)
   @Post('register')
@@ -122,6 +149,25 @@ export class AuthController {
     return userData.user
   }
 
+
+  @ApiOperation({
+    summary: 'Вход по почте и паролю',
+    description: 'Проверяет почту и пароль, выдает access и refresh токены в куки, возвращает данные пользователя',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['email', 'password'],
+      properties: {
+        email: { type: 'string', example: 'example@gmail.com' },
+        password: { type: 'string', example: '12345678' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Пользователь успешно вошел',
+  })
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Post('login')
@@ -147,6 +193,26 @@ export class AuthController {
     return userData.user
   }
 
+
+  @ApiOperation({
+    summary: 'Смена пароля',
+    description: 'Проверяет старый пароль, если он верный, то меняет на новый, выдает новые access и refresh токены в куки, возвращает данные пользователя',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['userId', 'oldPassword', 'newPassword'],
+      properties: {
+        userId: { type: 'string', example: '6933d4e122263df011cee115' },
+        oldPassword: { type: 'string', example: '12345678' },
+        newPassword: { type: 'string', example: '87654321' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Пароль успешно изменен',
+  })
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Post('password/change')
@@ -172,7 +238,17 @@ export class AuthController {
 
     return userData.user
   }
-  
+
+
+  @ApiOperation({
+    summary: 'Обновление access токена',
+    description: 'Проверяет refresh токен из куки, если он правильный, то выдает новый access токен в куки',
+  })
+  @ApiCookieAuth('refreshToken')
+  @ApiResponse({
+    status: 200,
+    description: 'Access токен успешно обновлен',
+  })
   @Throttle(REFRESH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Get('refresh')
@@ -192,6 +268,16 @@ export class AuthController {
       .json(userData.user)
   }
 
+
+  @ApiOperation({
+    summary: 'Выход из аккаунта',
+    description: 'Удаляет refresh токен из redis и очищает куки',
+  })
+  @ApiCookieAuth('refreshToken')
+  @ApiResponse({
+    status: 200,
+    description: 'Пользователь успешно вышел',
+  })
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(
@@ -205,6 +291,32 @@ export class AuthController {
     res.send()
   }
 
+
+  @ApiOperation({
+    summary: 'Обновление данных пользователя',
+    description: 'Обновляет данные пользователя, возвращает обновленные данные',
+  })
+  @ApiCookieAuth('token')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['user'],
+      properties: {
+        user: {
+          type: 'object',
+          required: ['name', 'email'],
+          properties: {
+            name: { type: 'string', example: 'Игорь' },
+            email: { type: 'string', example: 'example@gmail.com' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Данные пользователя успешно обновлены'
+  })
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('update')
