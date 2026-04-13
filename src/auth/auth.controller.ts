@@ -24,6 +24,7 @@ import mongoose, { Model, Types } from 'mongoose';
 import { UserClass } from 'src/user/schemas/user.schema';
 
 import { ApiBody, ApiOperation } from '@nestjs/swagger';
+import { REFRESH_TOKEN_TTL_SECONDS, ACCESS_TOKEN_TTL_SECONDS } from 'src/token/constants/token.constants';
 
 // стандартные настройки для Throttle
 const AUTH_THROTTLE_OPTIONS = {
@@ -43,10 +44,9 @@ const REFRESH_THROTTLE_OPTIONS = {
   },
 }
 
-// время жизни refresh токена 30 дней
-const REFRESH_TOKEN_MAX_AGE = 30 * 24 * 60 * 60 * 1000
-// время жизни access токена 7 дней
-const ACCESS_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000
+// время жизни токенов в МС для куки
+const REFRESH_TOKEN_MAX_AGE = REFRESH_TOKEN_TTL_SECONDS * 1000
+const ACCESS_TOKEN_MAX_AGE = ACCESS_TOKEN_TTL_SECONDS * 1000
 
 
 @Controller('auth')
@@ -98,45 +98,14 @@ export class AuthController {
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.CREATED)
-  @Post('register/email')
-  @ApiOperation({
-    summary: 'Регистрация с помощью почты',
-    description: '',
-
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        email: { type: 'string', example: 'user@example.com' },
-      },
-    },
-  })
+  @Post('register')
   async registerByEmail(
-    @Body('email') email: string
-  ) {
-    return await this.AuthService.registerByEmail(email)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.CREATED)
-  @Post('register/email/confirm')
-  async registerByEmailConfirm(
-    @Body('tempUserId') tempUserId: string,
-    @Body('code') code: string,
-  ) {
-    return await this.AuthService.registerByEmailConfirm(tempUserId, code)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.CREATED)
-  @Post('register/profile')
-  async registerProfile(
     @Res({ passthrough: true }) res: Response,
-    @Body('tempUserId') tempUserId: string,
+    @Body('email') email: string,
     @Body('name') name: string,
+    @Body('password') password: string,
   ) {
-    const userData = await this.AuthService.registerProfile(tempUserId, name)
+    const userData = await this.AuthService.registerByEmail(email, name, password)
 
     res
     .cookie(
@@ -155,82 +124,13 @@ export class AuthController {
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
-  @Post('login/email')
-  async loginByEmail(
-    @Body('email') email: string
-  ) {
-    return await this.AuthService.loginByEmail(email)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('login/email/confirm')
-  async loginByEmailConfirm(
-    @Res({ passthrough: true }) res: Response,
-    @Body('loginTempId') loginTempId: string,
-    @Body('code') code: string,
-  ) {
-    const userData = await this.AuthService.loginByEmailConfirm(loginTempId, code)
-
-    res
-    .cookie(
-      'refreshToken',
-      userData.refreshToken,
-      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-    )
-    .cookie(
-      'token',
-      userData.accessToken,
-      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
-    )
-
-    return userData.user
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('login/password')
+  @Post('login')
   async loginByPassword(
     @Res({ passthrough: true }) res: Response,
     @Body('email') email: string,
-    @Body('password') password: string,
+    @Body('password') password: string
   ) {
     const userData = await this.AuthService.loginByPassword(email, password)
-    
-    res
-    .cookie(
-      'refreshToken',
-      userData.refreshToken,
-      this.getCookieOptions(REFRESH_TOKEN_MAX_AGE),
-    )
-    .cookie(
-      'token',
-      userData.accessToken,
-      this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
-    )
-
-    return userData.user
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('password/set/request-code')
-  async requestSetPasswordCode(
-    @Body('userId') userId: string
-  ) {
-    return await this.AuthService.requestSetPasswordCode(userId)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('password/set')
-  async setPassword(
-    @Res({ passthrough: true }) res: Response,
-    @Body('userId') userId: string,
-    @Body('code') code: string,
-    @Body('password') password: string,
-  ) {
-    const userData = await this.AuthService.setPassword(userId, code, password)
 
     res
     .cookie(
@@ -245,15 +145,6 @@ export class AuthController {
     )
 
     return userData.user
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('password/change/request-code')
-  async requestChangePasswordCode(
-    @Body('userId') userId: string
-  ) {
-    return await this.AuthService.requestChangePasswordCode(userId)
   }
 
   @Throttle(AUTH_THROTTLE_OPTIONS)
@@ -262,10 +153,10 @@ export class AuthController {
   async changePassword(
     @Res({ passthrough: true }) res: Response,
     @Body('userId') userId: string,
-    @Body('code') code: string,
+    @Body('oldPassword') oldPassword: string,
     @Body('newPassword') newPassword: string,
   ) {
-    const userData = await this.AuthService.changePassword(userId, code, newPassword)
+    const userData = await this.AuthService.changePassword(userId, oldPassword, newPassword)
 
     res
     .cookie(
@@ -281,46 +172,7 @@ export class AuthController {
 
     return userData.user
   }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('email/change/current/request-code')
-  async requestChangeCurrentEmailCode(
-    @Body('userId') userId: string
-  ) {
-    return await this.AuthService.requestChangeCurrentEmailCode(userId)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('email/change/current/confirm')
-  async confirmChangeCurrentEmail(
-    @Body('userId') userId: string,
-    @Body('code') code: string,
-  ) {
-    return await this.AuthService.confirmCurrentEmail(userId, code)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('email/change/new/request-code')
-  async requestChangeNewEmailCode(
-    @Body('userId') userId: string,
-    @Body('newEmail') newEmail: string,
-  ) {
-    return await this.AuthService.requestChangeNewEmailCode(userId, newEmail)
-  }
-
-  @Throttle(AUTH_THROTTLE_OPTIONS)
-  @HttpCode(HttpStatus.OK)
-  @Post('email/change/new/confirm')
-  async confirmChangeNewEmail(
-    @Body('userId') userId: string,
-    @Body('code') code: string,
-  ) {
-    return await this.AuthService.confirmNewEmail(userId, code)
-  }
-
+  
   @Throttle(REFRESH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Get('refresh')

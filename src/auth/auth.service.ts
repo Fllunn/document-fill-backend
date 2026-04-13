@@ -87,7 +87,7 @@ export class AuthService {
    * Проверка корректности имени пользователя
    * @param name имя пользователя
    */
-  private ValidateName(name: string) {
+  private validateName(name: string) {
     name = name.trim()
 
     if (!name)
@@ -118,7 +118,7 @@ export class AuthService {
 
   async registerByEmail(email: string, name: string, password: string) {
     email = this.normalizeEmail(email)
-    name = this.ValidateName(name)
+    name = this.validateName(name)
     this.validatePassword(password)
 
     const hashPassword = await bcrypt.hash(password, 3)
@@ -316,6 +316,9 @@ export class AuthService {
    * @returns
    */
   async logout(refreshToken: string) {
+    if (!refreshToken)
+      return 0
+
     return await this.TokenService.removeToken(refreshToken)
   }
 
@@ -327,7 +330,7 @@ export class AuthService {
    */
   async update(newUser: UserFromClient, userId: string) {
     const email = this.normalizeEmail(newUser.email)
-    const name = this.ValidateName(newUser.name)
+    const name = this.validateName(newUser.name)
 
     try {
       const user = await this.UserModel.findByIdAndUpdate(

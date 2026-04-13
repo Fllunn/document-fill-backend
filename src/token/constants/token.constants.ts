@@ -1,4 +1,6 @@
-﻿export const RESET_TOKEN_EXPIRES_IN = '15m'
-export const ACCESS_TOKEN_EXPIRES_IN = '15m'
-export const REFRESH_TOKEN_EXPIRES_IN = '30d'
-export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 дней для redis
+﻿export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 дней
+export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60 // 15 минут
+
+export const RESET_TOKEN_EXPIRES_IN = `${ACCESS_TOKEN_TTL_SECONDS}s`
+export const ACCESS_TOKEN_EXPIRES_IN = `${ACCESS_TOKEN_TTL_SECONDS}s`
+export const REFRESH_TOKEN_EXPIRES_IN = `${REFRESH_TOKEN_TTL_SECONDS}s`
