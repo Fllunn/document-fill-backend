@@ -6,7 +6,7 @@ export interface User {
   _id: mongoose.Types.ObjectId
   name: string
   email: string
-  password?: string | null // пароль может быть null, если у пользователя стоит вход только через код по почте
+  password: string
   roles: Role[]
   fileCount?: number; // количество загруженных файлов, оно нужно для ограничения
   

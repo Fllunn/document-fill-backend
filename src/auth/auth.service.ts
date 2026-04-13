@@ -11,15 +11,15 @@ import * as bcrypt from 'bcryptjs'
 import { MailService } from 'src/mail/mail.service'
 import { VerificationCodeService } from 'src/verification-code/verification-code.service' 
 import Redis from 'ioredis'
-import { VCodeType } from 'src/types/verification-code.type'
 import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
-import { VERIFICATION_CODE_TTL_SECONDS } from 'src/verification-code/constants/vc.constants'
 import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
 
 @Injectable()
 export class AuthService {
   private static readonly MIN_PASSWORD_LENGTH = 8
+  private static readonly MAX_PASSWORD_LENGTH = 50
+  private static readonly MAX_EMAIL_LENGTH = 300
 
   private readonly redis = new Redis({
     host: process.env.REDIS_HOST,
@@ -42,7 +42,10 @@ export class AuthService {
    */
   private validatePassword(password: string) {
     if (password.length < AuthService.MIN_PASSWORD_LENGTH)
-      throw ApiError.BadRequest('Слишком короткий пароль. Минимальная длина 8 символов')
+      throw ApiError.BadRequest(`Слишком короткий пароль. Минимальная длина ${AuthService.MIN_PASSWORD_LENGTH} символов`)
+
+    if (password.length > AuthService.MAX_PASSWORD_LENGTH)
+      throw ApiError.BadRequest(`Слишком длинный пароль. Максимальная длина ${AuthService.MAX_PASSWORD_LENGTH} символов`)
   }
 
   private async getUserOrThrow(userId: string): Promise<UserDocument> {
@@ -70,7 +73,25 @@ export class AuthService {
     }
   }
 
+  private generateTokensOrThrow(user: UserDocument) {
+    const tokens = this.TokenService.generateTokens({
+      _id: user._id,
+      password: user.password,
+    })
+
+    if (!tokens.refreshToken || !tokens.accessToken)
+      throw ApiError.Internal('Не удалось сгенерировать токены')
+
+    return {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    }
+  }
+
   private normalizeEmail(email: string) {
+    if (email.length > AuthService.MAX_EMAIL_LENGTH)
+      throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${AuthService.MAX_EMAIL_LENGTH} символов`)
+
     return email.trim().toLowerCase()
   }
 
@@ -94,15 +115,15 @@ export class AuthService {
   }
 
   /**
-   * Проверка уникальности почты
+   * Существует ли пользователь с такой почтой
    * @param email 
    * @returns user
    */
-  private async checkUniqueEmail(email: string) {
-    const user = await this.UserModel.findOne({ email }).lean()
+  private async checkUserByEmail(email: string) {
+    const user = await this.UserModel.findOne({ email })
 
-    if (user)
-      throw ApiError.BadRequest(`Пользователь с почтой ${email} уже существует`)
+    if (!user)
+      throw ApiError.BadRequest(`Пользователь с почтой ${email} не найден`)
 
     return user
   }
@@ -112,21 +133,39 @@ export class AuthService {
     name = this.ValidateName(name)
     this.validatePassword(password)
 
-    const user = await this.checkUniqueEmail(email)
+    const hashPassword = await bcrypt.hash(password, 3)
 
+    let user: UserDocument
 
+    try {
+      user = await this.UserModel.create({
+        email,
+        name,
+        password: hashPassword,
+        authMethods: [AuthMethod.EMAIL_AND_PASSWORD],
+      })
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) {
+        throw ApiError.BadRequest(`Пользователь с почтой ${email} уже существует`)
+      }
+
+      throw ApiError.Internal('Ошибка при создании пользователя')
+    }
+
+    const tokens = this.generateTokensOrThrow(user)
+
+    await this.TokenService.saveToken(tokens.refreshToken)
+
+    return {
+      ...tokens,
+      user: this.getSafeUser(user)
+    }
   }
 
   async loginByPassword(email: string, password: string) {
     email = this.normalizeEmail(email)
 
-    const user = await this.UserModel.findOne({ email })
-
-    if (!user)
-      throw ApiError.BadRequest('Пользователь с таким email не найден')
-
-    if (!user.password)
-      throw ApiError.BadRequest('У вас не установлен пароль. Войдите через код с почты')
+    const user = await this.checkUserByEmail(email)
 
     const isPasswordValid = await bcrypt.compare(password, user.password)
 
@@ -149,19 +188,19 @@ export class AuthService {
     }
   }
 
-  async changePassword(userId: string, code: string, newPassword: string) {
+  async changePassword(userId: string, oldPassword: string,newPassword: string) {
     const user = await this.getUserOrThrow(userId)
 
-    if (!user.password)
-      throw ApiError.BadRequest('У вас не установлен пароль')
-
-    await this.verificationCodeService.verifyCode({
-      tempUserId: userId,
-      code,
-      type: VCodeType.CHANGE_PASSWORD,
-    })
-
     this.validatePassword(newPassword)
+
+    const isOldPasswordEqualsUser = await bcrypt.compare(oldPassword, user.password)
+
+    if (!isOldPasswordEqualsUser)
+      throw ApiError.BadRequest('Введенный старый пароль не совпадает с текущим паролем')
+
+    const isNewPasswordEqualsOld = await bcrypt.compare(newPassword, user.password)
+    if (isNewPasswordEqualsOld)
+      throw ApiError.BadRequest('Новый пароль совпадает с текущим паролем')
 
     const hashPassword = await bcrypt.hash(newPassword, 3)
 
@@ -178,11 +217,6 @@ export class AuthService {
       throw ApiError.Internal('Не удалось сгенерировать токены')
 
     await this.TokenService.saveToken(tokens.refreshToken)
-
-    await this.verificationCodeService.consumeCode(
-      userId,
-      VCodeType.CHANGE_PASSWORD
-    )
 
     return {
       ...tokens,
@@ -304,16 +338,34 @@ export class AuthService {
    * @returns 
    */
   async update(newUser: UserFromClient, userId: string) {
-    const userData = {
-      name: newUser.name,
-      email: newUser.email,
-    }
+    const email = this.normalizeEmail(newUser.email)
+    const name = this.ValidateName(newUser.name)
 
-    return await this.UserModel.findByIdAndUpdate(userId, userData, {
-      new: true,
-      runValidators: true,
-      projection: { password: 0 },
-    }).lean()
+    try {
+      const user = await this.UserModel.findByIdAndUpdate(
+        userId,
+        { name, email },
+        {
+          new: true,
+          runValidators: true,
+          projection: { password: 0 },
+        }
+      ).lean()
+
+      if (!user)
+        throw ApiError.BadRequest('Пользователь не найден')
+
+      return user
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) {
+        throw ApiError.BadRequest(`Пользователь с почтой ${email} уже существует`)
+      }
+
+      if (error instanceof ApiError)
+        throw error
+
+      throw ApiError.Internal('Ошибка при обновлении данных пользователя')
+    }
   }
 
   /**

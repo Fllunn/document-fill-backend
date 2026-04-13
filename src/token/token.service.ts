@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common'
 import * as jwt from 'jsonwebtoken'
 import { User } from 'src/user/interfaces/user.interface';
 import Redis from 'ioredis';
+import { createHash } from 'crypto';
+import { RESET_TOKEN_EXPIRES_IN, ACCESS_TOKEN_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, REFRESH_TOKEN_TTL_SECONDS } from './constants/token.constants';
 
 @Injectable()
 export class TokenService {
@@ -11,6 +13,10 @@ export class TokenService {
 		password: process.env.REDIS_PASSWORD || undefined,
 		db: Number(process.env.REDIS_DB ?? 0),
 	});
+
+  private getHashToken(token: string): string {
+    return createHash('sha256').update(token + process.env.TOKEN_PEPPER).digest('hex')
+  }
 
   // проверка reset токена
 	validateResetToken(token: string, secret: string): any {
@@ -24,7 +30,7 @@ export class TokenService {
   // создание reset токена
 	createResetToken(payload: any, secret: string): string | null {
 		try {
-			return jwt.sign(payload, secret, { expiresIn: '7d' })
+			return jwt.sign(payload, secret, { expiresIn: RESET_TOKEN_EXPIRES_IN })
 		} catch {
 			return null
 		}
@@ -33,8 +39,8 @@ export class TokenService {
   // генерация access и refresh токенов
 	generateTokens(payload: any): { accessToken: string | null, refreshToken: string | null } {
 		try {
-			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
-			const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' })
+			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN })
+			const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRES_IN })
 
 			return { accessToken, refreshToken }
 		} catch {
@@ -45,7 +51,7 @@ export class TokenService {
   
 	generateAccessToken(payload: any): string | null {
 		try {
-			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: '7d' })
+			const accessToken = jwt.sign(payload, process.env.JWT_ACCESS_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN })
 			return accessToken
 		} catch (error) {
 			return null
@@ -71,17 +77,23 @@ export class TokenService {
   // сохраняем refresh токен
   // действует 30 дней, удаляется при выходе из аккаунта
 	async saveToken(refreshToken: string): Promise<void> {
-		await this.redis.set(`rt:${refreshToken}`, '1', 'EX', 30 * 24 * 60 * 60)
+    refreshToken = this.getHashToken(refreshToken)
+
+		await this.redis.set(`rt:${refreshToken}`, '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
 	}
 
   // удаление refresh токена
 	async removeToken(refreshToken: string): Promise<number> {
+    refreshToken = this.getHashToken(refreshToken)
+
 		return await this.redis.del(`rt:${refreshToken}`)
 	}
 
   // проверяем, существует ли refresh токен
 	async findToken(refreshToken: string): Promise<string | null> {
-		const exists = await this.redis.exists(`rt:${refreshToken}`)
+    const refreshTokenHash = this.getHashToken(refreshToken)
+
+		const exists = await this.redis.exists(`rt:${refreshTokenHash}`)
 		return exists ? refreshToken : null
 	}
 }

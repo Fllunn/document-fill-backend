@@ -23,9 +23,9 @@ export class UserClass {
 
   @Prop({
     type: String,
-    required: false,
+    required: true,
   })
-  password!: string | null;
+  password!: string;
 
   @Prop({
     type: Array,
