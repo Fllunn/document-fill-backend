@@ -14,26 +14,14 @@ import Redis from 'ioredis'
 import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
 import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
+import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from './constants/auth.constants'
 
 @Injectable()
 export class AuthService {
-  private static readonly MIN_PASSWORD_LENGTH = 8
-  private static readonly MAX_PASSWORD_LENGTH = 50
-  private static readonly MAX_EMAIL_LENGTH = 300
-
-  private readonly redis = new Redis({
-    host: process.env.REDIS_HOST,
-    port: Number(process.env.REDIS_PORT),
-    password: process.env.REDIS_PASSWORD || undefined,
-    db: Number(process.env.REDIS_DB ?? 0),
-  })
-
   constructor(
     @InjectModel('User') private UserModel: Model<UserClass>,
     private TokenService: TokenService,
     private RolesService: RolesService,
-    private mailService: MailService,
-    private verificationCodeService: VerificationCodeService,
   ) { }
 
   /**
@@ -41,11 +29,11 @@ export class AuthService {
    * @param password 
    */
   private validatePassword(password: string) {
-    if (password.length < AuthService.MIN_PASSWORD_LENGTH)
-      throw ApiError.BadRequest(`Слишком короткий пароль. Минимальная длина ${AuthService.MIN_PASSWORD_LENGTH} символов`)
+    if (password.length < MIN_PASSWORD_LENGTH)
+      throw ApiError.BadRequest(`Слишком короткий пароль. Минимальная длина ${MIN_PASSWORD_LENGTH} символов`)
 
-    if (password.length > AuthService.MAX_PASSWORD_LENGTH)
-      throw ApiError.BadRequest(`Слишком длинный пароль. Максимальная длина ${AuthService.MAX_PASSWORD_LENGTH} символов`)
+    if (password.length > MAX_PASSWORD_LENGTH)
+      throw ApiError.BadRequest(`Слишком длинный пароль. Максимальная длина ${MAX_PASSWORD_LENGTH} символов`)
   }
 
   private async getUserOrThrow(userId: string): Promise<UserDocument> {
@@ -89,8 +77,8 @@ export class AuthService {
   }
 
   private normalizeEmail(email: string) {
-    if (email.length > AuthService.MAX_EMAIL_LENGTH)
-      throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${AuthService.MAX_EMAIL_LENGTH} символов`)
+    if (email.length > MAX_EMAIL_LENGTH)
+      throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${MAX_EMAIL_LENGTH} символов`)
 
     return email.trim().toLowerCase()
   }
