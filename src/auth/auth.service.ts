@@ -77,10 +77,12 @@ export class AuthService {
   }
 
   private normalizeEmail(email: string) {
+    email = email.trim().toLowerCase()
+
     if (email.length > MAX_EMAIL_LENGTH)
       throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${MAX_EMAIL_LENGTH} символов`)
 
-    return email.trim().toLowerCase()
+    return email
   }
 
   /**

@@ -22,7 +22,7 @@ export class SomeAdminGuard implements CanActivate {
     try {
       const payload = await this.jwtService.verifyAsync(token, { secret: process.env.JWT_ACCESS_SECRET })
 //криво
-      if (!(this.RolesService.isAdmin(payload.roles) || (this.RolesService.isManager(payload.roles))))
+      if (!this.RolesService.isAdmin(payload.roles))
         throw ApiError.AccessDenied()
 
       request.user = payload
