@@ -16,6 +16,8 @@ import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from './constants/auth.constants'
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -79,8 +81,14 @@ export class AuthService {
   private normalizeEmail(email: string) {
     email = email.trim().toLowerCase()
 
+    if (!email)
+      throw ApiError.BadRequest('Email не может быть пустым')
+
     if (email.length > MAX_EMAIL_LENGTH)
       throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${MAX_EMAIL_LENGTH} символов`)
+
+    if (!EMAIL_REGEX.test(email))
+      throw ApiError.BadRequest('Некорректный email')
 
     return email
   }
