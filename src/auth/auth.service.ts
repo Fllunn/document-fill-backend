@@ -1,23 +1,15 @@
 import { Injectable } from '@nestjs/common'
 import { TokenService } from 'src/token/token.service'
-import mongoose, { Model } from 'mongoose'
+import { Model } from 'mongoose'
 import ApiError from 'src/exceptions/errors/api-error'
 import { InjectModel } from '@nestjs/mongoose'
 import { UserClass, UserDocument } from 'src/user/schemas/user.schema'
-import { User } from 'src/user/interfaces/user.interface'
 import { RolesService } from 'src/roles/roles.service'
 import * as bcrypt from 'bcryptjs'
-import { MailService } from 'src/mail/mail.service'
-import { VerificationCodeService } from 'src/verification-code/verification-code.service' 
-import Redis from 'ioredis'
-import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
 import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
-import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from './constants/auth.constants'
 import { isValidObjectId } from 'mongoose'
 import { UpdateUserDto } from './dto/update-user.dto'
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 @Injectable()
 export class AuthService {
@@ -26,18 +18,6 @@ export class AuthService {
     private TokenService: TokenService,
     private RolesService: RolesService,
   ) { }
-
-  /**
-   * Проверка сложности пароля
-   * @param password 
-   */
-  private validatePassword(password: string) {
-    if (password.length < MIN_PASSWORD_LENGTH)
-      throw ApiError.BadRequest(`Слишком короткий пароль. Минимальная длина ${MIN_PASSWORD_LENGTH} символов`)
-
-    if (password.length > MAX_PASSWORD_LENGTH)
-      throw ApiError.BadRequest(`Слишком длинный пароль. Максимальная длина ${MAX_PASSWORD_LENGTH} символов`)
-  }
 
   private async getUserOrThrow(userId: string): Promise<UserDocument> {
     await this.checkUserId(userId)
@@ -86,40 +66,6 @@ export class AuthService {
     }
   }
 
-  private normalizeEmail(email: string) {
-    email = email.trim().toLowerCase()
-
-    if (!email)
-      throw ApiError.BadRequest('Email не может быть пустым')
-
-    if (email.length > MAX_EMAIL_LENGTH)
-      throw ApiError.BadRequest(`Слишком длинный email. Максимальная длина ${MAX_EMAIL_LENGTH} символов`)
-
-    if (!EMAIL_REGEX.test(email))
-      throw ApiError.BadRequest('Некорректный email')
-
-    return email
-  }
-
-  /**
-   * Проверка корректности имени пользователя
-   * @param name имя пользователя
-   */
-  private validateName(name: string) {
-    name = name.trim()
-
-    if (!name)
-      throw ApiError.BadRequest('Имя не может быть пустым')
-
-    if (name.length < NAME_USER_MIN_LEN)
-      throw ApiError.BadRequest(`Минимальная длина имени ${NAME_USER_MIN_LEN} символов`)
-
-    if (name.length > NAME_USER_MAX_LEN)
-      throw ApiError.BadRequest(`Максимальная длина имени ${NAME_USER_MAX_LEN} символов`)
-
-    return name
-  }
-
   /**
    * Существует ли пользователь с такой почтой
    * @param email 
@@ -135,10 +81,6 @@ export class AuthService {
   }
 
   async registerByEmail(email: string, name: string, password: string) {
-    email = this.normalizeEmail(email)
-    name = this.validateName(name)
-    this.validatePassword(password)
-
     const hashPassword = await bcrypt.hash(password, 3)
 
     let user: UserDocument
@@ -169,8 +111,6 @@ export class AuthService {
   }
 
   async loginByPassword(email: string, password: string) {
-    email = this.normalizeEmail(email)
-
     const user = await this.checkUserByEmail(email)
 
     const isPasswordValid = await bcrypt.compare(password, user.password)
@@ -196,8 +136,6 @@ export class AuthService {
 
   async changePassword(userId: string, oldPassword: string,newPassword: string) {
     const user = await this.getUserOrThrow(userId)
-
-    this.validatePassword(newPassword)
 
     const isOldPasswordEqualsUser = await bcrypt.compare(oldPassword, user.password)
 
@@ -290,8 +228,8 @@ export class AuthService {
   async update(newUser: UpdateUserDto, userId: string) {
     this.checkUserId(userId)
 
-    const email = this.normalizeEmail(newUser.email)
-    const name = this.validateName(newUser.name)
+    const email = newUser.email
+    const name = newUser.name
 
     try {
       const user = await this.UserModel.findByIdAndUpdate(
