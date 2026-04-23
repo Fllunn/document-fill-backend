@@ -1,9 +1,11 @@
-﻿import { IsEmail, IsString, MinLength, MaxLength, Max } from 'class-validator'
+﻿import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from '../constants/auth.constants'
 import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.constants'
 
 export class RegisterDto {
-  @IsEmail()
+  @IsEmail({}, {
+    message: 'Некорректный email',
+  })
   @MaxLength(MAX_EMAIL_LENGTH)
   readonly email!: string
 

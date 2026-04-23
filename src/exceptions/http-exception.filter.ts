@@ -20,5 +20,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
    
     if (exception instanceof ApiError)
       return res.status(exception.error_code).json({ message: exception.message })
+
+    return res.status(exception.getStatus()).json(exception.getResponse())
   }
 }
