@@ -15,6 +15,7 @@ import { NAME_USER_MIN_LEN, NAME_USER_MAX_LEN } from 'src/user/constants/user.co
 import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from './constants/auth.constants'
+import { isValidObjectId } from 'mongoose'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -39,6 +40,8 @@ export class AuthService {
   }
 
   private async getUserOrThrow(userId: string): Promise<UserDocument> {
+    await this.checkUserId(userId)
+
     const user = await this.UserModel.findById(userId)
 
     if (!user)
@@ -61,6 +64,11 @@ export class AuthService {
       fileCount: user.fileCount,
       authMethods: user.authMethods,
     }
+  }
+
+  private checkUserId(userId: string) {
+    if (!isValidObjectId(userId))
+      throw ApiError.UnauthorizedError('Некорректный userId')
   }
 
   private generateTokensOrThrow(user: UserDocument) {
@@ -268,8 +276,7 @@ export class AuthService {
    * @returns 
    */
   async validateEnterToResetPassword(userId: any, token: string) {
-    if (!mongoose.Types.ObjectId.isValid(userId))
-      throw ApiError.BadRequest('Пользователь не найден')
+    this.checkUserId(userId)
 
     let candidate = await this.UserModel.findById(userId)
 
@@ -339,6 +346,8 @@ export class AuthService {
    * @returns 
    */
   async update(newUser: UserFromClient, userId: string) {
+    this.checkUserId(userId)
+
     const email = this.normalizeEmail(newUser.email)
     const name = this.validateName(newUser.name)
 
