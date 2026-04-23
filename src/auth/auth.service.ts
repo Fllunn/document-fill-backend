@@ -5,7 +5,6 @@ import ApiError from 'src/exceptions/errors/api-error'
 import { InjectModel } from '@nestjs/mongoose'
 import { UserClass, UserDocument } from 'src/user/schemas/user.schema'
 import { User } from 'src/user/interfaces/user.interface'
-import { UserFromClient } from 'src/user/interfaces/user-from-client.interface'
 import { RolesService } from 'src/roles/roles.service'
 import * as bcrypt from 'bcryptjs'
 import { MailService } from 'src/mail/mail.service'
@@ -16,6 +15,7 @@ import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH, MAX_EMAIL_LENGTH } from './constants/auth.constants'
 import { isValidObjectId } from 'mongoose'
+import { UpdateUserDto } from './dto/update-user.dto'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -270,64 +270,6 @@ export class AuthService {
   }
 
   /**
-   * Валидация входа для сброса пароля
-   * @param userId 
-   * @param token 
-   * @returns 
-   */
-  async validateEnterToResetPassword(userId: any, token: string) {
-    this.checkUserId(userId)
-
-    let candidate = await this.UserModel.findById(userId)
-
-    if (!candidate?._id)
-      throw ApiError.BadRequest('Пользователь с таким _id не найден')
-
-    // секрет для reset токена = это JWT_RESET_SECRET + пароль пользователя
-    let secret = process.env.JWT_RESET_SECRET! + candidate.password
-
-    // проверить валидность reset токена
-    let result = this.TokenService.validateResetToken(token, secret)
-
-    if (!result)
-      throw ApiError.AccessDenied()
-
-    // если токен валиден, то вернуть результат (payload reset токена)
-    return result
-  }
-
-  async resetPassword(password: string, token: string, userId: string) {
-    // проверить, валиден ли reset токен и соответствует ли он пользователю
-    await this.validateEnterToResetPassword(userId, token)
-
-    this.validatePassword(password)
-
-    // хэшируем новый пароль и сохраняем его в БД
-    const hashPassword = await bcrypt.hash(password, 3)
-    const user = await this.UserModel.findByIdAndUpdate(
-      userId,
-      { password: hashPassword },
-      { new: true},
-    )
-
-    if (!user)
-      throw ApiError.UnauthorizedError()
-
-    // генерируем новый access и refresh токены для пользователя, так как его пароль изменился
-    const tokens = this.TokenService.generateTokens({ _id: user._id, password: user.password })
-
-    if (!tokens.refreshToken || !tokens.accessToken)
-      throw ApiError.BadRequest('Не удалось сгенерировать токены')
-
-    await this.TokenService.saveToken(tokens.refreshToken)
-
-    return {
-      ...tokens,
-      user: this.getSafeUser(user)
-    }
-  }
-
-  /**
    * Удаление refresh токена из БД при выходе из аккаунта
    * @param refreshToken 
    * @returns
@@ -345,7 +287,7 @@ export class AuthService {
    * @param userId 
    * @returns 
    */
-  async update(newUser: UserFromClient, userId: string) {
+  async update(newUser: UpdateUserDto, userId: string) {
     this.checkUserId(userId)
 
     const email = this.normalizeEmail(newUser.email)

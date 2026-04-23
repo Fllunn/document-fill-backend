@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
 
 // Load environment variables at the very beginning
 
@@ -17,6 +18,12 @@ async function bootstrap() {
     credentials: true
   })
   app.useGlobalFilters(new HttpExceptionFilter())
+
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true, // удаляет поля, которые НЕ описаны в dto
+    forbidNonWhitelisted: true, // выбрасывает ошибку, если в запросе есть лишние поля
+    transform: true, // автоматически преобразует типы данных в соответствии с dto
+  }))
 
   app.use(cookieParser())
 

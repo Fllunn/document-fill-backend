@@ -10,6 +10,11 @@ import {
   UseGuards
 } from '@nestjs/common'
 
+import { RegisterDto } from './dto/register.dto'
+import { LoginDto } from './dto/login.dto'
+import { ChangePasswordDto } from './dto/change-password.dto'
+import { UpdateUserDto } from './dto/update-user.dto'
+
 import { CookieOptions, Request, Response } from 'express';
 import RequestWithUser from 'src/types/request-with-user.type';
 import { UserFromClient } from 'src/user/interfaces/user-from-client.interface';
@@ -128,11 +133,9 @@ export class AuthController {
   @Post('register')
   async registerByEmail(
     @Res({ passthrough: true }) res: Response,
-    @Body('email') email: string,
-    @Body('name') name: string,
-    @Body('password') password: string,
+    @Body() dto: RegisterDto,
   ) {
-    const userData = await this.AuthService.registerByEmail(email, name, password)
+    const userData = await this.AuthService.registerByEmail(dto.email, dto.name, dto.password)
 
     res
     .cookie(
@@ -173,10 +176,9 @@ export class AuthController {
   @Post('login')
   async loginByPassword(
     @Res({ passthrough: true }) res: Response,
-    @Body('email') email: string,
-    @Body('password') password: string
+    @Body() dto: LoginDto,
   ) {
-    const userData = await this.AuthService.loginByPassword(email, password)
+    const userData = await this.AuthService.loginByPassword(dto.email, dto.password)
 
     res
     .cookie(
@@ -201,9 +203,8 @@ export class AuthController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['userId', 'oldPassword', 'newPassword'],
+      required: ['oldPassword', 'newPassword'],
       properties: {
-        userId: { type: 'string', example: '6933d4e122263df011cee115' },
         oldPassword: { type: 'string', example: '12345678' },
         newPassword: { type: 'string', example: '87654321' },
       },
@@ -214,15 +215,15 @@ export class AuthController {
     description: 'Пароль успешно изменен',
   })
   @Throttle(AUTH_THROTTLE_OPTIONS)
+  @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('password/change')
   async changePassword(
     @Res({ passthrough: true }) res: Response,
-    @Body('userId') userId: string,
-    @Body('oldPassword') oldPassword: string,
-    @Body('newPassword') newPassword: string,
+    @Body() dto: ChangePasswordDto,
+    @Req() req: RequestWithUser,
   ) {
-    const userData = await this.AuthService.changePassword(userId, oldPassword, newPassword)
+    const userData = await this.AuthService.changePassword(req.user._id, dto.oldPassword, dto.newPassword)
 
     res
     .cookie(
@@ -321,9 +322,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('update')
   async update(
-    @Body('user') newUser: UserFromClient,
+    @Body() dto: UpdateUserDto,
     @Req() req: RequestWithUser,
   ) {
-    return await this.AuthService.update(newUser, req.user._id)
+    return await this.AuthService.update(dto, req.user._id)
   }
 }
