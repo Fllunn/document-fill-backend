@@ -8,9 +8,9 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
-import { Delimiters, TemplateHandler } from 'easy-template-x';
 import createReport, { listCommands } from 'docx-templates';
 
+const { TemplateHandler } = require('easy-template-x')
 
 @Injectable()
 export class FilesService {
