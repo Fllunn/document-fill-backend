@@ -3,7 +3,7 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateTemplateDto {
   @IsOptional()
-  @Transform(({ value }) => value.trim())
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @MaxLength(255)
   readonly name?: string;

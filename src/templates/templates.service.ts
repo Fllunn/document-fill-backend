@@ -80,7 +80,7 @@ export class TemplatesService {
       throw ApiError.NotFound();
     }
 
-    if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
+    if (template.storageType === 'user' && template.userId?.toString() !== user._id.toString()) {
       // Пользователь может получить только свои user шаблоны
       throw ApiError.AccessDenied();
     }
@@ -102,7 +102,7 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
     
-    if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
+    if (template.storageType === 'user' && template.userId?.toString() !== user._id.toString()) {
       // Пользователь может редактировать только свои user шаблоны
       throw ApiError.AccessDenied();
     }
@@ -144,7 +144,7 @@ export class TemplatesService {
       throw ApiError.AccessDenied();
     }
 
-    if (template.storageType === 'user' && template.userId?.toString() !== user._id) {
+    if (template.storageType === 'user' && template.userId?.toString() !== user._id.toString()) {
       // Пользователь может удалить только свои user шаблоны
       throw ApiError.AccessDenied();
     }

@@ -4,8 +4,10 @@ import { IVerificationCodeToCreate } from './interfaces/IVerificationCodeToCreat
 import { IVerificationCodeToVerify } from './interfaces/IVerificationCodeToVerify'
 import { Throttle } from '@nestjs/throttler'
 import { VCodeType } from 'src/types/verification-code.type'
+import { ApiExcludeController } from '@nestjs/swagger'
 
 
+@ApiExcludeController()
 @Throttle({
   default: {
     ttl: 60000,
