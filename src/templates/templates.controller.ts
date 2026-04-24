@@ -16,50 +16,64 @@ import {
 
 import { TemplatesService } from './templates.service';
 import { ITemplate } from './interfaces/templates.interface';
-import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common/decorators';
 import ApiError from 'src/exceptions/errors/api-error';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiOkResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiOkResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+
+import { CreateTemplateDto } from './dto/create-template.dto'
+import { UpdateTemplateDto } from './dto/update-template.dto'
 
 
 @ApiBearerAuth() // Swwagger autorization Bearer token
 @Controller('templates')
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
-
-  // // POST /templates - Create a new template
-  // @Post()
-  // @UseGuards(AuthGuard) // только авторизованные
-  // create(@Body() template: ITemplate, @Req() request: any) {
-  //   // request.user содержит информацию о текущем пользователе из JWT
-  //   return this.templatesService.create(template, request.user);
-  // }
   
-  // GET /templates - Get all templates
+  @ApiOperation({
+    summary: 'Получение списка шаблонов',
+    description: 'Возвращает все системные шаблоны и шаблоны пользователя',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Список шаблонов успешно получен',
+  })
   @Get()
   @UseGuards(AuthGuard) // только авторизованные
-  @ApiOperation({
-    summary: 'Get all templates',
-    description: 'Return all system templates and user templates owned by the current user',
-  })
   findAll(@Req() request: any) {
     return this.templatesService.findAll(request.user);
   }
 
-  // GET /templates/:id - Get a specific template
   @Get(':id')
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({
-    summary: 'Get a specific template',
-    description: 'User can access system templates and their own user templates',
+    summary: 'Получение шаблона по ID',
+    description: 'Возвращает системный шаблон или шаблон, принадлежащий пользователю',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    required: true,
+    description: 'ID шаблона',
+    example: '64b8f0c2e1b2c3d4e5f67890',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Шаблон успешно получен',
+    schema: {
+      type: 'object',
+      properties: {
+        _id: { type: 'string', example: '65f1a7c3e4b0a2d9f8c12345' },
+        name: { type: 'string', example: 'contract.docx' },
+        storageType: { type: 'string', example: 'user' },
+      },
+    },
   })
   findOne(@Param('id') id: string, @Req() request: any) {
     return this.templatesService.findOne(id, request.user);
   }
 
-  // DELETE /templates/:id - Delete a template
   @Delete(':id')
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({
@@ -70,18 +84,19 @@ export class TemplatesController {
     return this.templatesService.delete(id, request.user);
   }
 
-  // PATCH /templates/:id - Update a template
   @Patch(':id')
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({
     summary: 'Update a specific template',
     description: 'Only admin can update system templates<br><br>User templates can be updated by their owners',
   })
-  update(@Param('id') id: string, @Body() templateToEdit: ITemplateToEdit, @Req() request: any) {
-    return this.templatesService.update(id, request.user, templateToEdit);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateTemplateDto,
+    @Req() request: any) {
+    return this.templatesService.update(id, request.user, dto);
   }
 
-  // GET /templates/:id/variables - Get variables of a template
   @Get(':id/variables')
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({
@@ -95,24 +110,45 @@ export class TemplatesController {
   @Post()
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({
-    summary: 'Create a new template from a file',
-    description: 'User can create new templates by uploading .docx or .doc files<br><br>Maximum file size is 512 KB<br><br>Only admin can create system templates',
+    summary: 'Создать новый шаблон из файла',
+    description: 'Создает новый шаблон из файла .docx<br><br>Для обычного пользователя максимальный размер файла 512 КБ<br><br>Системные шаблоны может создавать только администратор',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'isSystem'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Файл шаблона в формате .docx',
+        },
+        isSystem: {
+          type: 'boolean',
+          example: false,
+          description: 'Создать системный шаблон. Доступно только администратору',
+        },
+      },
+    },
   })
   @UseInterceptors(
     FileInterceptor('file', {
       fileFilter: (req, file, cb) => {
         if (
-          file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // .docx
-          file.mimetype === 'application/msword' // .doc
+          file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' // .docx
         ) {
           cb(null, true);
         } else {
-          cb(ApiError.BadRequest('Разрешены только файлы .docx и .doc'), false);
+          cb(ApiError.BadRequest('Разрешены только файлы .docx'), false);
         }
       },
     }),
   )
-  createFromFile(@UploadedFile() file: Express.Multer.File, @Body('isSystem') isSystem: string, @Req() request: any) {
+  createFromFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: CreateTemplateDto,
+    @Req() request: any) {
     if (!file) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
@@ -123,6 +159,6 @@ export class TemplatesController {
     //   console.log(file, isSystem)
     // }
 
-    return this.templatesService.createFromFile(file, isSystem === 'true', request.user);
+    return this.templatesService.createFromFile(file, dto.isSystem, request.user);
   }
 }

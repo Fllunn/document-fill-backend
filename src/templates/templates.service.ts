@@ -9,7 +9,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Template } from './schemas/templates.schema';
 import { User } from 'src/user/interfaces/user.interface';
 import { ITemplate } from './interfaces/templates.interface';
-import { ITemplateToEdit } from './interfaces/ITemplatesToEdit';
 
 // Services
 import { RolesService } from 'src/roles/roles.service';
@@ -21,6 +20,7 @@ import ApiError from 'src/exceptions/errors/api-error';
 
 // Other
 import * as path from 'path';
+import { UpdateTemplateDto } from './dto/update-template.dto';
 
 @Injectable()
 export class TemplatesService {
@@ -64,8 +64,7 @@ export class TemplatesService {
           { storageType: 'user', userId: user._id },
         ]
       })
-      .select('name variables storageType mimeType')
-      // .lean для возврата JS объектов вместо Mongoose документов (работает быстрее)
+      .select('name storageType')
       .lean()
       .exec();
 
@@ -75,7 +74,7 @@ export class TemplatesService {
   async findOne(id: string, user: any): Promise<Template> {
     const template = await this.templateModel
       .findById(id)
-      .select('name variables storageType userId mimeType')
+      .select('name storageType userId')
       .exec();
     if (!template) {
       throw ApiError.NotFound();
@@ -91,7 +90,7 @@ export class TemplatesService {
     return result;
   }
 
-  async update(id: string, user: any, templateToEdit: ITemplateToEdit, newFile?: Express.Multer.File): Promise<ITemplateToEdit> {
+  async update(id: string, user: any, templateToEdit: UpdateTemplateDto, newFile?: Express.Multer.File): Promise<Template> {
     const template = await this.templateModel.findById(id).exec();
     
     if (!template) {
@@ -118,7 +117,6 @@ export class TemplatesService {
       }
       
       template.variables = await this.filesService.extractVariables(newFile);
-      template.mimeType = newFile.mimetype;
       template.name = newFile.originalname.replace(/\s+/g, '_'); // replace spaces with _
     }
 
@@ -243,7 +241,6 @@ export class TemplatesService {
       throw ApiError.BadRequest('Поддерживаются только .docx файлы');
     }
 
-    const mimeType = file.mimetype;
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
     const userId = isSystem ? null : user._id;
 
@@ -266,7 +263,6 @@ export class TemplatesService {
       variables,
       storageType,
       userId,
-      mimeType,
     };
 
     const savedTemplate = await this.templateModel.create(template);

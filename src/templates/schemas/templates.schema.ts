@@ -23,9 +23,6 @@ export class Template {
 
   @Prop({ type: String, default: null })
   userId: string | null;
-
-  @Prop({ required: true })
-  mimeType: string;
 }
 
 export const TemplateSchema = SchemaFactory.createForClass(Template);

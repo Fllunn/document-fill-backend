@@ -4,5 +4,4 @@ export interface ITemplate {
   "variables": string[],              // Список переменных
   "storageType": "system" | "user",   // Тип шаблона
   "userId": string | null,            // Владелец (для пользовательских шаблонов)
-  "mimeType": string                  // MIME-тип файла (.docx или .doc)
 }
