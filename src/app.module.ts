@@ -16,6 +16,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { TemplatesModule } from './templates/templates.module';
 import { DocumentsModule } from './documents/documents.module';
 import { VerificationCodeModule } from './verification-code/verification-code.module';
+import { PhotosModule } from './photos/photos.module';
 
 
 @Module({
@@ -39,7 +40,8 @@ import { VerificationCodeModule } from './verification-code/verification-code.mo
     AdminModule,
     TemplatesModule,
     DocumentsModule,
-    VerificationCodeModule
+    VerificationCodeModule,
+    PhotosModule,
   ],
   controllers: [AppController],
   providers: [

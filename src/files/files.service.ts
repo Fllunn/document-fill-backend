@@ -94,6 +94,22 @@ export class FilesService {
     return `${path}/${fileName}`;
   }
 
+  async saveYCFilePhoto(file: Express.Multer.File, fileName: string, user: any): Promise<string> {
+    const path = `users/${user._id}/photos`;
+
+    const uploadResult = await YaCloud.Upload({
+      file,
+      path,
+      fileName,
+    });
+
+    if (!uploadResult || !uploadResult.Location) {
+      throw ApiError.Internal('Ошибка при загрузке фотографии в облачное хранилище');
+    }
+
+    return `${path}/${fileName}`;
+  }
+
   /**
    * save in yandex cloud storage (documents)
    * @param file 
@@ -133,6 +149,22 @@ export class FilesService {
     }
 
     await YaCloud.deleteFile(this.normalizeYCFilePath(filePath));
+  }
+
+  async getYCFileBuffer(filePath: string): Promise<Buffer> {
+    if (!filePath) {
+      throw ApiError.BadRequest('Путь к файлу не указан');
+    }
+
+    const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
+
+    const response = await fetch(presignedUrl);
+
+    if (!response.ok) {
+      throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
 
   /**
