@@ -27,7 +27,7 @@ export class DocumentsService {
       throw ApiError.NotFound('Шаблон не найден');
     }
 
-    const fileName = `${new Types.ObjectId().toString()}-${template.name}`;
+    const fileName = `${new Types.ObjectId().toString()}.docx`;
 
     const documentBuffer = await this.filesService.fillTemplate(template.filePath, document.values);
 
@@ -111,7 +111,7 @@ export class DocumentsService {
         await this.filesService.deleteYCFile(document.file.path);
       }
 
-      const fileName = `${new Types.ObjectId().toString()}-${template.name}`;
+      const fileName = `${new Types.ObjectId().toString()}.docx`;
       const newFilePath = await this.filesService.saveYCFileDocument(
         { buffer: documentBuffer } as Express.Multer.File,
         fileName,

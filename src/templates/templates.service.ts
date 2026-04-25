@@ -117,10 +117,11 @@ export class TemplatesService {
       }
       
       template.variables = await this.filesService.extractVariables(newFile);
-      template.name = newFile.originalname.replace(/\s+/g, '_'); // replace spaces with _
+      template.name = path.parse(newFile.originalname).name.replace(/\s+/g, '_') // replace spaces with _
     }
 
-    Object.assign(template, templateToEdit);
+    const { file, ...templateFields } = templateToEdit;
+    Object.assign(template, templateFields);
 
     const updatedTemplate = await template.save();
     const result: any = updatedTemplate.toObject();
@@ -234,9 +235,10 @@ export class TemplatesService {
     }
 
     // base data in template
-    const originalName = file.originalname.replace(/\s+/g, '_'); // replace spaces with _
+    const parsedFileName = path.parse(file.originalname);
+    const originalName = parsedFileName.name.replace(/\s+/g, '_'); // replace spaces with _
+    const extension = parsedFileName.ext.toLowerCase();
 
-    const extension = path.extname(originalName).toLowerCase();
     if (extension !== '.docx') {
       throw ApiError.BadRequest('Поддерживаются только .docx файлы');
     }
@@ -244,7 +246,7 @@ export class TemplatesService {
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
     const userId = isSystem ? null : user._id;
 
-    const fileName = this.filesService.generateFileName(originalName); 
+    const fileName = this.filesService.generateFileName(`${originalName}${extension}`); 
 
     let filePath: string;
 

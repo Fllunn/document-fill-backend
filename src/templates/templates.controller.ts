@@ -136,16 +136,13 @@ export class TemplatesController {
   })
   update(
     @Param('id') id: string,
-    @Body('name') name: string,
+    @Body() dto: UpdateTemplateDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() request: any) {
     
     if (file) {
       file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     }
-    
-    const dto: UpdateTemplateDto = name ? { name: name.trim().replace(/\s+(\.[^.]+)$/g, '$1') } : {};
-
     return this.templatesService.update(id, request.user, dto, file);
   }
 
