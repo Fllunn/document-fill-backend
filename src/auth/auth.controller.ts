@@ -301,16 +301,10 @@ export class AuthController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['user'],
+      required: ['name', 'email'],
       properties: {
-        user: {
-          type: 'object',
-          required: ['name', 'email'],
-          properties: {
-            name: { type: 'string', example: 'Игорь' },
-            email: { type: 'string', example: 'example@gmail.com' },
-          },
-        },
+        name: { type: 'string', example: 'Игорь' },
+        email: { type: 'string', example: 'example@gmail.com' },
       },
     },
   })
