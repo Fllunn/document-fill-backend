@@ -265,4 +265,24 @@ export class AuthService {
   async getAllUsers() {
     return await this.UserModel.find({}, { password: 0 }).lean()
   }
+
+  async deleteUser(userId: string, password: string, refreshToken: string) {
+    const user = await this.getUserOrThrow(userId)
+
+    const isPasswordEqualsUser = await bcrypt.compare(password, user.password)
+
+    if (!isPasswordEqualsUser)
+      throw ApiError.BadRequest('Неверный пароль')
+
+    await this.UserModel.findByIdAndDelete(userId)
+
+    try {
+      await this.TokenService.removeToken(refreshToken)
+    } catch {
+      // игнорирумем ошибку при удалении токена, так как аккаунт мы уже удалили
+    }
+    
+
+    return { message: 'Пользователь успешно удален' }
+  }
 }

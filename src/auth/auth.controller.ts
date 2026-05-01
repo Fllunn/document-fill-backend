@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -14,6 +15,7 @@ import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
+import { DeleteUserDto } from './dto/delete-user.dto'
 
 import { CookieOptions, Request, Response } from 'express';
 import RequestWithUser from 'src/types/request-with-user.type';
@@ -313,6 +315,7 @@ export class AuthController {
     description: 'Данные пользователя успешно обновлены'
   })
   @UseGuards(AuthGuard)
+  @Throttle(AUTH_THROTTLE_OPTIONS)
   @HttpCode(HttpStatus.OK)
   @Post('update')
   async update(
@@ -320,5 +323,38 @@ export class AuthController {
     @Req() req: RequestWithUser,
   ) {
     return await this.AuthService.update(dto, req.user._id)
+  }
+
+  @ApiOperation({
+    summary: 'Удаление аккаунта пользователя',
+    description: 'Удаляет аккаунт пользователя',
+  })
+  @ApiCookieAuth('token')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['password'],
+      properties: {
+        password: { type: 'string', example: '12345678' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Аккаунт успешно удален'
+  })
+  @UseGuards(AuthGuard)
+  @Throttle(AUTH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Delete('delete')
+  async deleteUser(
+    @Body() dto: DeleteUserDto,
+    @Req() req: RequestWithUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.AuthService.deleteUser(req.user._id, dto.password, req.cookies.refreshToken)
+    this.clearAuthCookies(res)
+    
+    return result
   }
 }
