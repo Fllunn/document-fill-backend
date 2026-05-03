@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 FROM base AS build
 
@@ -22,7 +22,7 @@ WORKDIR /app
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --legacy-peer-deps
 
 COPY --from=build /app/dist ./dist
 
