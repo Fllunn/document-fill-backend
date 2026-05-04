@@ -1,8 +1,10 @@
-﻿FROM node:20.17.0-alpine AS base
+﻿FROM node:22-alpine AS base
 
 RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
+
+ENV CI=true
 
 COPY package.json package-lock.json ./
 
@@ -12,18 +14,25 @@ FROM base AS build
 
 COPY . .
 
+ENV NODE_OPTIONS="--max-old-space-size=512"
+
 RUN npm run build
 
-FROM base AS production
+FROM node:22-alpine AS production
 
-ENV NODE_ENV=production
+RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-COPY --from=build /app/package.json /app/package-lock.json ./
+ENV NODE_ENV=production
+ENV CI=true
 
-RUN npm ci --omit=dev --legacy-peer-deps
+COPY package.json package-lock.json ./
+
+RUN npm ci --omit=dev --legacy-peer-deps && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 
-CMD ["node", "dist/main"]
+EXPOSE 3000
+
+CMD ["node", "dist/main.js"]
