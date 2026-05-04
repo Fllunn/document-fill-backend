@@ -33,6 +33,6 @@ RUN npm ci --omit=dev --legacy-peer-deps && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 
-EXPOSE 3000
+EXPOSE 3033
 
 CMD ["node", "dist/main.js"]
