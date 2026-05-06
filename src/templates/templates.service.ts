@@ -157,6 +157,8 @@ export class TemplatesService {
       await this.filesService.deleteYCFile(template.filePath);
     }
 
+    await this.templateModel.findByIdAndDelete(id);
+
     if (template.storageType !== 'system' && !this.rolesService.isAdmin(user.roles)) {
       await this.userModel.findByIdAndUpdate(
         user._id,
