@@ -20,6 +20,7 @@ import ApiError from 'src/exceptions/errors/api-error';
 
 // Other
 import * as path from 'path';
+import * as fs from 'fs';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 
 @Injectable()
@@ -213,6 +214,37 @@ export class TemplatesService {
     })
 
     return grouped;
+  }
+
+  async downloadTemplate(id: string, user: any): Promise<{ buffer: Buffer; name: string }> {
+    const template = await this.templateModel
+      .findById(id)
+      .select('name filePath storageType userId')
+      .exec();
+
+    if (!template) {
+      throw ApiError.NotFound();
+    }
+
+    if (template.storageType === 'user' && template.userId?.toString() !== user._id.toString()) {
+      throw ApiError.AccessDenied();
+    }
+
+    let buffer: Buffer;
+
+    if (template.storageType === 'system') {
+      const filePath = path.normalize(template.filePath);
+
+      if (!fs.existsSync(filePath)) {
+        throw ApiError.NotFound();
+      }
+      
+      buffer = fs.readFileSync(filePath);
+    } else {
+      buffer = await this.filesService.getYCFileBuffer(template.filePath);
+    }
+
+    return { buffer, name: `${template.name}.docx` };
   }
 
   async createFromFile(file: Express.Multer.File, isSystem: boolean, user: any): Promise<Template> {

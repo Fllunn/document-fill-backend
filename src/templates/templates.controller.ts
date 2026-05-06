@@ -7,12 +7,14 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
   Patch,
   Delete,
   Param,
   UseInterceptors,
 } from '@nestjs/common';
+import { Response } from 'express';
 
 import { TemplatesService } from './templates.service';
 import { ITemplate } from './interfaces/templates.interface';
@@ -144,6 +146,30 @@ export class TemplatesController {
       file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     }
     return this.templatesService.update(id, request.user, dto, file);
+  }
+
+  @Get(':id/download')
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'Скачивание файла шаблона',
+    description: 'Возвращает файл .docx шаблона для скачивания',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    required: true,
+    description: 'ID шаблона',
+    example: '64b8f0c2e1b2c3d4e5f67890',
+  })
+  @ApiResponse({ status: 200, description: 'Файл шаблона' })
+  async downloadTemplate(@Param('id') id: string, @Req() request: any, @Res() res: Response) {
+    const { buffer, name } = await this.templatesService.downloadTemplate(id, request.user);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Get(':id/variables')

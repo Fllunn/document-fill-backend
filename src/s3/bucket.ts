@@ -76,8 +76,7 @@ class YandexCloud {
       const params = {
         Bucket: process.env.YC_BUCKET_NAME,
         Key: objectKey,
-        Expires: 60 * 5, // URL expiration time in seconds
-        ContentType: 'application/octet-stream', // Set the content type
+        Expires: 60 * 5,
       };
       const url = await this.aws.getSignedUrlPromise('getObject', params);
       return url;
