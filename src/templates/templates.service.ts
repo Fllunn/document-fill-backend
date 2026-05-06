@@ -109,6 +109,12 @@ export class TemplatesService {
     }
 
     if (newFile) {
+      const extractedVariables = await this.filesService.extractVariables(newFile);
+      
+      if (extractedVariables.length === 0) {
+        throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {{Имя}}');
+      }
+
       if (template.storageType === 'system') {
         await this.filesService.deleteSystemFile(template.filePath);
         template.filePath = this.filesService.saveSystemFile(newFile, this.filesService.generateFileName(newFile.originalname));
@@ -116,9 +122,9 @@ export class TemplatesService {
         await this.filesService.deleteYCFile(template.filePath);
         template.filePath = await this.filesService.saveYCFileTemplate(newFile, this.filesService.generateFileName(newFile.originalname), user);
       }
-      
-      template.variables = await this.filesService.extractVariables(newFile);
-      template.name = path.parse(newFile.originalname).name.replace(/\s+/g, '_') // replace spaces with _
+
+      template.variables = extractedVariables;
+      template.name = path.parse(newFile.originalname).name.replace(/\s+/g, '_');
     }
 
     const { file, ...templateFields } = templateToEdit;
@@ -277,10 +283,15 @@ export class TemplatesService {
       throw ApiError.BadRequest('Поддерживаются только .docx файлы');
     }
 
+    const variables = await this.filesService.extractVariables(file);
+    if (variables.length === 0) {
+      throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {{Имя}}');
+    }
+
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
     const userId = isSystem ? null : user._id;
 
-    const fileName = this.filesService.generateFileName(`${originalName}${extension}`); 
+    const fileName = this.filesService.generateFileName(`${originalName}${extension}`);
 
     let filePath: string;
 
@@ -289,8 +300,6 @@ export class TemplatesService {
     } else {
       filePath = await this.filesService.saveYCFileTemplate(file, fileName, user);
     }
-
-    const variables = await this.filesService.extractVariables(file);
 
     // generate template document
     const template: ITemplate = {
