@@ -65,7 +65,7 @@ export class TemplatesService {
           { storageType: 'user', userId: user._id },
         ]
       })
-      .select('name storageType')
+      .select('name storageType createdAt')
       .lean()
       .exec();
 
