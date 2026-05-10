@@ -57,6 +57,6 @@ jobs:
 
             docker pull ghcr.io/fllunn/document-fill-backend:latest
 
-            docker compose up --detach --no-deps app
+            docker compose up -d --no-deps app
 
             docker image prune -f
