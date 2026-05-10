@@ -6,7 +6,7 @@ on:
       - production
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/document-fill-backend
+  IMAGE_NAME: ghcr.io/fllunn/document-fill-backend
 
 jobs:
   build-and-push:
