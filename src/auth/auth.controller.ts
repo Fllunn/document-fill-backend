@@ -53,7 +53,7 @@ const AUTH_THROTTLE_OPTIONS = {
 const REFRESH_THROTTLE_OPTIONS = {
   default: {
     ttl: 60000,
-    limit: 30,
+    limit: 60,
     blockDuration: 5 * 60000,
   },
 }
@@ -269,6 +269,24 @@ export class AuthController {
         this.getCookieOptions(ACCESS_TOKEN_MAX_AGE),
       )
       .json(userData.user)
+  }
+
+
+  @ApiOperation({
+    summary: 'Получение данных текущего пользователя',
+    description: 'Возвращает данные пользователя по access токену из куки',
+  })
+  @ApiCookieAuth('token')
+  @ApiResponse({
+    status: 200,
+    description: 'Данные пользователя успешно получены',
+  })
+  @UseGuards(AuthGuard)
+  @Throttle(REFRESH_THROTTLE_OPTIONS)
+  @HttpCode(HttpStatus.OK)
+  @Get('me')
+  async me(@Req() req: RequestWithUser) {
+    return this.UserModel.findById(req.user._id).lean()
   }
 
 
