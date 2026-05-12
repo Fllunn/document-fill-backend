@@ -6,7 +6,7 @@ on:
       - production
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/document-fill-backend
+  IMAGE_NAME: ghcr.io/fllunn/document-fill-backend
 
 jobs:
   build-and-push:
@@ -53,9 +53,9 @@ jobs:
           script: |
             cd ${{ secrets.APP_DIR }}
 
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u fllunn --password-stdin
 
-            docker pull ghcr.io/${{ github.repository_owner }}/document-fill-backend:latest
+            docker pull ghcr.io/fllunn/document-fill-backend:latest
 
             docker compose up -d --no-deps app
 

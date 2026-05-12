@@ -14,8 +14,6 @@ FROM base AS build
 
 COPY . .
 
-ENV NODE_OPTIONS="--max-old-space-size=1024"
-
 RUN npm run build
 
 FROM node:22-alpine AS production
@@ -25,7 +23,6 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV CI=true
 
 COPY package.json package-lock.json ./
 
