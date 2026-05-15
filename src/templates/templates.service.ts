@@ -2,7 +2,7 @@
 import { Injectable } from '@nestjs/common';
 
 // MongoDB
-import { Model, Types } from 'mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 
 // Schemas and Interfaces
@@ -73,6 +73,10 @@ export class TemplatesService {
   }
 
   async findOne(id: string, user: any): Promise<Template> {
+    if (!isValidObjectId(id)) {
+      throw ApiError.BadRequest('Некорректный ID шаблона');
+    }
+
     const template = await this.templateModel
       .findById(id)
       .select('name storageType userId')
