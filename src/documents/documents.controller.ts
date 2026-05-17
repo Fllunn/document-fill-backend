@@ -23,6 +23,7 @@ import {
 import { AuthGuard } from 'src/auth/auth.guard';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import ApiError from 'src/exceptions/errors/api-error';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -77,7 +78,17 @@ export class DocumentsController {
   @Post('extract')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 512 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === DOCX_MIME) {
+        cb(null, true);
+      } else {
+        cb(ApiError.BadRequest('Разрешены только файлы .docx'), false);
+      }
+    },
+  }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Извлечь переменные из документа',
@@ -119,7 +130,17 @@ export class DocumentsController {
   @Post('update')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 512 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === DOCX_MIME) {
+        cb(null, true);
+      } else {
+        cb(ApiError.BadRequest('Разрешены только файлы .docx'), false);
+      }
+    },
+  }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Обновить документ',
