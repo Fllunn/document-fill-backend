@@ -10,7 +10,6 @@ import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
 import createReport, { listCommands } from 'docx-templates';
 
-const { TemplateHandler } = require('easy-template-x')
 
 @Injectable()
 export class FilesService {
@@ -206,36 +205,39 @@ export class FilesService {
     
   }
 
-  async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
+  async getTemplateBuffer(filePath: string): Promise<Buffer> {
     if (!filePath) {
       throw ApiError.BadRequest('Путь к файлу не указан');
     }
 
-    let fileBuffer: Buffer;
-
-    // if file is in YC
     if (filePath.startsWith('users/')) {
       const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
-
       const response = await fetch(presignedUrl);
-
       if (!response.ok) {
         throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
       }
-
-      fileBuffer = Buffer.from(await response.arrayBuffer());
-    } else {
-      // local system file
-      const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
-      try {
-        fileBuffer = fs.readFileSync(pathLocal);
-      } catch (error) {
-        throw ApiError.NotFound();
-      }
+      return Buffer.from(await response.arrayBuffer());
     }
 
-    const template = new TemplateHandler();
-    const filledBuffer = await template.process(fileBuffer, values);
-    return filledBuffer;
+    const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
+    try {
+      return fs.readFileSync(pathLocal);
+    } catch {
+      throw ApiError.NotFound();
+    }
+  }
+
+  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
+    const result = await createReport({
+      template: templateBuffer,
+      data: values,
+      cmdDelimiter: ['{{', '}}'],
+    });
+    return Buffer.from(result);
+  }
+
+  async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
+    const fileBuffer = await this.getTemplateBuffer(filePath);
+    return this.fillTemplateFromBuffer(fileBuffer, values);
   }
 }
