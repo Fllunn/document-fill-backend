@@ -8,7 +8,14 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
-import createReport, { listCommands } from 'docx-templates';
+
+const {
+  TemplateHandler,
+  MissingCloseDelimiterError,
+  MissingStartDelimiterError,
+  UnclosedTagError,
+  UnopenedTagError,
+} = require('easy-template-x');
 
 
 @Injectable()
@@ -166,43 +173,66 @@ export class FilesService {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  /**
-   * https://github.com/alonrbar/easy-template-x#listing-tags
-   * extract variables from docx file
-   * @param file 
-   */
-  async extractVariables(file: Express.Multer.File): Promise<string[]> {
+  private readonly templateHandler = new TemplateHandler();
 
-    // if (process.env.NODE_ENV === 'development') {
-    //   console.log('Extracting variables from file:', file.originalname);
-    // }
-    
-    if (!file || !file.buffer) {
+  async extractVariables(file: Express.Multer.File): Promise<string[]> {
+    if (!file?.buffer) {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
     try {
+      const tags = await this.templateHandler.parseTags(file.buffer);
 
-      const arrayBuffer = new Uint8Array(file.buffer).buffer;
+      const variables: string[] = [];
+      const loopStack: string[] = [];
+      const loopHasChildren = new Map<string, boolean>();
 
-      const commands = await listCommands(arrayBuffer, ['{{', '}}']);
+      for (const tag of tags) {
+        const name = tag.name.trim();
 
-      const variables = commands
-        .filter(cmd => cmd.type === 'INS' && typeof cmd.code === 'string')
-        .map(cmd => cmd.code.replace(/\s*\.\s*/g, '.').trim());
+        if (/\s/.test(name)) {
+          throw ApiError.BadRequest(`Неверный синтаксис тега: "{{${tag.rawText}}}". Имя переменной не должно содержать пробелы`);
+        }
 
-      const uniqueVariables = Array.from(new Set(variables));
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Extracted variables:', uniqueVariables);
+        if (tag.disposition === 'Open') {
+          if (loopStack.length > 0) {
+            loopHasChildren.set(loopStack[loopStack.length - 1], true);
+          }
+          loopStack.push(name);
+          loopHasChildren.set(name, false);
+        } else if (tag.disposition === 'Close') {
+          const closed = loopStack.pop();
+          if (closed && !loopHasChildren.get(closed)) {
+            const prefix = loopStack[loopStack.length - 1];
+            variables.push(prefix ? `${prefix}[].${closed}` : closed);
+          }
+          if (closed) loopHasChildren.delete(closed);
+        } else {
+          const prefix = loopStack[loopStack.length - 1];
+          variables.push(prefix ? `${prefix}[].${name}` : name);
+          if (prefix) loopHasChildren.set(prefix, true);
+        }
       }
-      
-      return uniqueVariables;
+
+      return Array.from(new Set(variables));
     } catch (error) {
-      console.error('Error extracting variables:', error);
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      if (error instanceof MissingCloseDelimiterError) {
+        throw ApiError.BadRequest(`Незакрытый тег: "${error.openDelimiterText}"`);
+      }
+      if (error instanceof MissingStartDelimiterError) {
+        throw ApiError.BadRequest(`Открывающий тег отсутствует: "${error.closeDelimiterText}"`);
+      }
+      if (error instanceof UnclosedTagError) {
+        throw ApiError.BadRequest(`Тег не закрыт: "#${error.tagName}"`);
+      }
+      if (error instanceof UnopenedTagError) {
+        throw ApiError.BadRequest(`Тег не открыт: "/${error.tagName}"`);
+      }
       throw ApiError.Internal('Ошибка при извлечении переменных из файла');
     }
-    
   }
 
   async getTemplateBuffer(filePath: string): Promise<Buffer> {
@@ -228,11 +258,7 @@ export class FilesService {
   }
 
   async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
-    const result = await createReport({
-      template: templateBuffer,
-      data: values,
-      cmdDelimiter: ['{{', '}}'],
-    });
+    const result = await this.templateHandler.process(templateBuffer, values);
     return Buffer.from(result);
   }
 
