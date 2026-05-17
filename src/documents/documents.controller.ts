@@ -49,6 +49,11 @@ export class DocumentsController {
           example: '6a098649e8940276ac104506',
           description: 'ID шаблона',
         },
+        name: {
+          type: 'string',
+          example: 'Договор Иванов',
+          description: 'Имя файла (без расширения)',
+        },
         values: {
           type: 'object',
           example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
@@ -62,10 +67,10 @@ export class DocumentsController {
     description: 'Готовый документ .docx',
   })
   async create(@Body() dto: CreateDocumentDto): Promise<StreamableFile> {
-    const buffer = await this.documentsService.create(dto.templateId, dto.values);
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name);
     return new StreamableFile(buffer, {
       type: DOCX_MIME,
-      disposition: 'attachment; filename="document.docx"',
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.docx`,
     });
   }
 
@@ -76,7 +81,7 @@ export class DocumentsController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Извлечь переменные из документа',
-    description: 'Вернет заполненные значения переменных из ранее сгенерированного .docx файла',
+    description: 'Вернет имя и заполненные значения переменных из ранее сгенерированного .docx файла',
   })
   @ApiBody({
     schema: {
@@ -93,21 +98,21 @@ export class DocumentsController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Поля и значения в документе',
+    description: 'Имя файла и значения переменных',
     schema: {
       type: 'object',
       properties: {
+        name: { type: 'string', example: 'Договор Иванов' },
         values: {
           type: 'object',
           example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
-          description: 'Заполненные значения переменных',
         },
       },
     },
   })
   async extract(
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<{ values: Record<string, any> }> {
+  ): Promise<{ values: Record<string, any>; name: string }> {
     return this.documentsService.extract(file.buffer);
   }
 
@@ -118,7 +123,7 @@ export class DocumentsController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Обновить документ',
-    description: 'Обновляет значения переменных в ранее сгенерированном .docx файле и возвращает новый файл с новыми значениями',
+    description: 'Обновляет значения переменных в ранее сгенерированном .docx файле и возвращает новый файл',
   })
   @ApiBody({
     schema: {
@@ -129,6 +134,11 @@ export class DocumentsController {
           type: 'string',
           format: 'binary',
           description: 'Ранее сгенерированный .docx файл',
+        },
+        name: {
+          type: 'string',
+          example: 'Договор Петров',
+          description: 'Новое имя файла (без расширения)',
         },
         values: {
           type: 'object',
@@ -145,12 +155,13 @@ export class DocumentsController {
   async update(
     @UploadedFile() file: Express.Multer.File,
     @Body('values') valuesRaw: string,
+    @Body('name') name?: string,
   ): Promise<StreamableFile> {
     const values: Record<string, any> = JSON.parse(valuesRaw);
-    const buffer = await this.documentsService.update(file.buffer, values);
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name);
     return new StreamableFile(buffer, {
       type: DOCX_MIME,
-      disposition: 'attachment; filename="document.docx"',
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.docx`,
     });
   }
 }

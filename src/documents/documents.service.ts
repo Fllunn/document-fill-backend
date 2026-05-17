@@ -16,7 +16,7 @@ export class DocumentsService {
     private cryptoService: CryptoService,
   ) {}
 
-  async create(templateId: string, values: Record<string, any>): Promise<Buffer> {
+  async create(templateId: string, values: Record<string, any>, name?: string): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
@@ -25,30 +25,29 @@ export class DocumentsService {
     const templateBuffer = await this.filesService.getTemplateBuffer(template.filePath);
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, values);
 
-    const meta: IDocumentMeta = {
-      templateBase64: templateBuffer.toString('base64'),
-      values,
-    };
+    const docName = name ?? 'document';
+    const meta: IDocumentMeta = { templateBase64: templateBuffer.toString('base64'), values, name: docName };
 
-    return this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
+    return { buffer: await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta))), name: docName };
   }
 
-  async extract(fileBuffer: Buffer): Promise<{ values: Record<string, any> }> {
+  async extract(fileBuffer: Buffer): Promise<{ values: Record<string, any>; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
-    return { values: meta.values };
+    return { values: meta.values, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
     const templateBuffer = Buffer.from(meta.templateBase64, 'base64');
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, values);
 
-    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values };
+    const docName = name ?? meta.name ?? 'document';
+    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values, name: docName };
 
-    return this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
+    return { buffer: await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta))), name: docName };
   }
 
   private async embedMeta(docxBuffer: Buffer, encryptedMeta: string): Promise<Buffer> {
