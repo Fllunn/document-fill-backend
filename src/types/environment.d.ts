@@ -25,11 +25,6 @@ declare global {
       JWT_RESET_SECRET: string
       TOKEN_PEPPER: string
 
-      VERIFICATION_CODE_LENGTH: string
-      VERIFICATION_CODE_ATTEMPTS: string
-      VERIFICATION_CODE_TTL_SECONDS: string
-      VERIFICATION_CODE_COOLDOWN_SECONDS: string
-
       YC_SECRET: string
       YC_KEY_ID: string
       YC_BUCKET_NAME: string
