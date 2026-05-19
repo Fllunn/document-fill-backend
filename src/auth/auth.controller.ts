@@ -22,7 +22,6 @@ import RequestWithUser from 'src/types/request-with-user.type';
 import { UserFromClient } from 'src/user/interfaces/user-from-client.interface';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
-import { MailService } from 'src/mail/mail.service';
 import { Throttle } from '@nestjs/throttler';
 
 // all about MongoDB
@@ -68,7 +67,6 @@ const ACCESS_TOKEN_MAX_AGE = ACCESS_TOKEN_TTL_SECONDS * 1000
 export class AuthController {
   constructor(
     private readonly AuthService: AuthService,
-    private readonly mailService: MailService,
     @InjectModel('User') private readonly UserModel: Model<UserClass>,
   ) {}
 

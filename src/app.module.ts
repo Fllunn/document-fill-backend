@@ -15,7 +15,6 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { TemplatesModule } from './templates/templates.module';
 import { DocumentsModule } from './documents/documents.module';
-import { VerificationCodeModule } from './verification-code/verification-code.module';
 import { PhotosModule } from './photos/photos.module';
 
 
@@ -40,7 +39,6 @@ import { PhotosModule } from './photos/photos.module';
     AdminModule,
     TemplatesModule,
     DocumentsModule,
-    VerificationCodeModule,
     PhotosModule,
   ],
   controllers: [AppController],
