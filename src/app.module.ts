@@ -26,7 +26,7 @@ import { PhotosModule } from './photos/photos.module';
       limit: 20, // 20 requests per ttl
       blockDuration: 10 * 60000, // 10 minutes
     }]),
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, expandVariables: true }),
     MongooseModule.forRoot(process.env.MONGO_URL, {
       connectionFactory: (connection) => {
         connection.plugin(require('mongoose-autopopulate'));
