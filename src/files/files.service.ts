@@ -162,15 +162,19 @@ export class FilesService {
       throw ApiError.BadRequest('Путь к файлу не указан');
     }
 
-    const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
+    try {
+      const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
+      const response = await fetch(presignedUrl);
 
-    const response = await fetch(presignedUrl);
+      if (!response.ok) {
+        throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+      }
 
-    if (!response.ok) {
+      return Buffer.from(await response.arrayBuffer());
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
       throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
     }
-
-    return Buffer.from(await response.arrayBuffer());
   }
 
   private readonly templateHandler = new TemplateHandler();
