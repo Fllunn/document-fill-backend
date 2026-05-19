@@ -5,6 +5,8 @@ import { UserClass } from 'src/user/schemas/user.schema';
 import { RolesService } from 'src/roles/roles.service';
 import ApiError from 'src/exceptions/errors/api-error';
 
+const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'email', 'roles', 'fileCount']
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -12,15 +14,43 @@ export class AdminService {
     private rolesService: RolesService,
   ) {}
 
-  async getAllUsers(user: any, page: number, limit: number) {
+  async getAllUsers(
+    user: any,
+    page: number,
+    limit: number,
+    search?: string,
+    role?: string,
+    sortBy = 'createdAt',
+    order: 'asc' | 'desc' = 'desc',
+  ) {
     if (!this.rolesService.isAdmin(user.roles))
       throw ApiError.AccessDenied();
 
     const safeLimit = Math.min(limit, 100);
     const skip = (page - 1) * safeLimit;
+    const safeSortBy = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : 'createdAt'
+
+    const filter: Record<string, any> = {}
+
+    if (search) {
+      const regex = new RegExp(search, 'i')
+      filter.$or = [{ name: regex }, { email: regex }]
+    }
+
+    if (role) {
+      filter.roles = role
+    }
+
+    const sortOrder = order === 'asc' ? 1 : -1
+
     const [users, total] = await Promise.all([
-      this.UserModel.find().select('-password').skip(skip).limit(safeLimit).lean(),
-      this.UserModel.countDocuments(),
+      this.UserModel.find(filter)
+        .select('-password')
+        .sort({ [safeSortBy]: sortOrder })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      this.UserModel.countDocuments(filter),
     ]);
 
     return { users, total, page, limit: safeLimit };
