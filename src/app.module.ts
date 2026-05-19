@@ -15,7 +15,6 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { TemplatesModule } from './templates/templates.module';
 import { DocumentsModule } from './documents/documents.module';
-import { VerificationCodeModule } from './verification-code/verification-code.module';
 import { PhotosModule } from './photos/photos.module';
 
 
@@ -26,7 +25,7 @@ import { PhotosModule } from './photos/photos.module';
       limit: 20, // 20 requests per ttl
       blockDuration: 10 * 60000, // 10 minutes
     }]),
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, expandVariables: true }),
     MongooseModule.forRoot(process.env.MONGO_URL, {
       connectionFactory: (connection) => {
         connection.plugin(require('mongoose-autopopulate'));
@@ -40,7 +39,6 @@ import { PhotosModule } from './photos/photos.module';
     AdminModule,
     TemplatesModule,
     DocumentsModule,
-    VerificationCodeModule,
     PhotosModule,
   ],
   controllers: [AppController],

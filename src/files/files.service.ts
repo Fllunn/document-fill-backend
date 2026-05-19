@@ -8,9 +8,15 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
-import createReport, { listCommands } from 'docx-templates';
 
-const { TemplateHandler } = require('easy-template-x')
+const {
+  TemplateHandler,
+  MissingCloseDelimiterError,
+  MissingStartDelimiterError,
+  UnclosedTagError,
+  UnopenedTagError,
+} = require('easy-template-x');
+
 
 @Injectable()
 export class FilesService {
@@ -156,86 +162,112 @@ export class FilesService {
       throw ApiError.BadRequest('Путь к файлу не указан');
     }
 
-    const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
-
-    const response = await fetch(presignedUrl);
-
-    if (!response.ok) {
-      throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
-    }
-
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  /**
-   * https://github.com/alonrbar/easy-template-x#listing-tags
-   * extract variables from docx file
-   * @param file 
-   */
-  async extractVariables(file: Express.Multer.File): Promise<string[]> {
-
-    // if (process.env.NODE_ENV === 'development') {
-    //   console.log('Extracting variables from file:', file.originalname);
-    // }
-    
-    if (!file || !file.buffer) {
-      throw ApiError.BadRequest('Файл не был загружен');
-    }
-
     try {
-
-      const arrayBuffer = new Uint8Array(file.buffer).buffer;
-
-      const commands = await listCommands(arrayBuffer, ['{{', '}}']);
-
-      const variables = commands
-        .filter(cmd => cmd.type === 'INS' && typeof cmd.code === 'string')
-        .map(cmd => cmd.code.replace(/\s*\.\s*/g, '.').trim());
-
-      const uniqueVariables = Array.from(new Set(variables));
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Extracted variables:', uniqueVariables);
-      }
-      
-      return uniqueVariables;
-    } catch (error) {
-      console.error('Error extracting variables:', error);
-      throw ApiError.Internal('Ошибка при извлечении переменных из файла');
-    }
-    
-  }
-
-  async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
-    if (!filePath) {
-      throw ApiError.BadRequest('Путь к файлу не указан');
-    }
-
-    let fileBuffer: Buffer;
-
-    // if file is in YC
-    if (filePath.startsWith('users/')) {
       const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
-
       const response = await fetch(presignedUrl);
 
       if (!response.ok) {
         throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
       }
 
-      fileBuffer = Buffer.from(await response.arrayBuffer());
-    } else {
-      // local system file
-      const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
-      try {
-        fileBuffer = fs.readFileSync(pathLocal);
-      } catch (error) {
-        throw ApiError.NotFound();
-      }
+      return Buffer.from(await response.arrayBuffer());
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+    }
+  }
+
+  private readonly templateHandler = new TemplateHandler();
+
+  async extractVariables(file: Express.Multer.File): Promise<string[]> {
+    if (!file?.buffer) {
+      throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    const template = new TemplateHandler();
-    const filledBuffer = await template.process(fileBuffer, values);
-    return filledBuffer;
+    try {
+      const tags = await this.templateHandler.parseTags(file.buffer);
+
+      const variables: string[] = [];
+      const loopStack: string[] = [];
+      const loopHasChildren = new Map<string, boolean>();
+
+      for (const tag of tags) {
+        const name = tag.name.trim();
+
+        if (/\s/.test(name)) {
+          throw ApiError.BadRequest(`Неверный синтаксис тега: "${tag.rawText}". Имя переменной не должно содержать пробелы`);
+        }
+
+        if (tag.disposition === 'Open') {
+          if (loopStack.length > 0) {
+            loopHasChildren.set(loopStack[loopStack.length - 1], true);
+          }
+          loopStack.push(name);
+          loopHasChildren.set(name, false);
+        } else if (tag.disposition === 'Close') {
+          const closed = loopStack.pop();
+          if (closed && !loopHasChildren.get(closed)) {
+            const prefix = loopStack[loopStack.length - 1];
+            variables.push(prefix ? `${prefix}[].${closed}` : closed);
+          }
+          if (closed) loopHasChildren.delete(closed);
+        } else {
+          const prefix = loopStack[loopStack.length - 1];
+          variables.push(prefix ? `${prefix}[].${name}` : name);
+          if (prefix) loopHasChildren.set(prefix, true);
+        }
+      }
+
+      return Array.from(new Set(variables));
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      if (error instanceof MissingCloseDelimiterError) {
+        throw ApiError.BadRequest(`Незакрытый тег: "${error.openDelimiterText}"`);
+      }
+      if (error instanceof MissingStartDelimiterError) {
+        throw ApiError.BadRequest(`Открывающий тег отсутствует: "${error.closeDelimiterText}"`);
+      }
+      if (error instanceof UnclosedTagError) {
+        throw ApiError.BadRequest(`Тег не закрыт: "#${error.tagName}"`);
+      }
+      if (error instanceof UnopenedTagError) {
+        throw ApiError.BadRequest(`Тег не открыт: "/${error.tagName}"`);
+      }
+      throw ApiError.Internal('Ошибка при извлечении переменных из файла');
+    }
+  }
+
+  async getTemplateBuffer(filePath: string): Promise<Buffer> {
+    if (!filePath) {
+      throw ApiError.BadRequest('Путь к файлу не указан');
+    }
+
+    if (filePath.startsWith('users/')) {
+      const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
+      const response = await fetch(presignedUrl);
+      if (!response.ok) {
+        throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+      }
+      return Buffer.from(await response.arrayBuffer());
+    }
+
+    const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
+    try {
+      return fs.readFileSync(pathLocal);
+    } catch {
+      throw ApiError.NotFound();
+    }
+  }
+
+  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
+    const result = await this.templateHandler.process(templateBuffer, values);
+    return Buffer.from(result);
+  }
+
+  async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
+    const fileBuffer = await this.getTemplateBuffer(filePath);
+    return this.fillTemplateFromBuffer(fileBuffer, values);
   }
 }

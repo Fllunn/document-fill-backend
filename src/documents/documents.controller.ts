@@ -1,83 +1,194 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
   Post,
-  Query,
   Req,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
-  Patch,
-  Delete,
-  Param,
+  UseInterceptors,
 } from '@nestjs/common';
-
-import { DocumentsService } from './documents.service';
-import { IDocumentToEdit } from './interfaces/IDocumentsToEdit';
-import { IDocumentToCreate } from './interfaces/IDocumentsToCreate';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiProduces,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AuthGuard } from 'src/auth/auth.guard';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiOkResponse } from '@nestjs/swagger';
+import { DocumentsService } from './documents.service';
+import { CreateDocumentDto } from './dto/create-document.dto';
+import ApiError from 'src/exceptions/errors/api-error';
 
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const MAX_FILE_SIZE = 512 * 1024 * 2
 
-@ApiBearerAuth() // Swwagger autorization Bearer token
+@ApiBearerAuth()
+@ApiTags('Документы')
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
-  // POST /documents - Create a new document
   @Post()
-  @UseGuards(AuthGuard) // только авторизованные
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Create a new document',
-    description: 'User can create new documents based on owned templates and system templates',
+    summary: 'Создать документ',
+    description: 'Генерирует документ .docx из шаблона',
   })
-  create(@Body() document: IDocumentToCreate, @Req() request: any) {
-    // request.user содержит информацию о текущем пользователе из JWT
-    return this.documentsService.create(document, request.user);
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['templateId', 'values'],
+      properties: {
+        templateId: {
+          type: 'string',
+          example: '6a098649e8940276ac104506',
+          description: 'ID шаблона',
+        },
+        name: {
+          type: 'string',
+          example: 'Договор Иванов',
+          description: 'Имя файла (без расширения)',
+        },
+        values: {
+          type: 'object',
+          example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
+          description: 'Значения переменных шаблона',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Готовый документ .docx',
+  })
+  async create(@Body() dto: CreateDocumentDto): Promise<StreamableFile> {
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name);
+    return new StreamableFile(buffer, {
+      type: DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.docx`,
+    });
   }
 
-  // GET /documents/:id - Get a specific document
-  @Get(':id')
-  @UseGuards(AuthGuard) // только авторизованные
+  @Post('extract')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === DOCX_MIME) {
+        cb(null, true);
+      } else {
+        cb(ApiError.BadRequest('Разрешены только файлы .docx'), false);
+      }
+    },
+  }))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Get a specific document',
-    description: 'User can access their own documents<br><br>Admins can access any document',
+    summary: 'Извлечь переменные из документа',
+    description: 'Вернет имя и заполненные значения переменных из ранее сгенерированного .docx файла',
   })
-  findOne(@Param('id') id: string, @Req() request: any) {
-    return this.documentsService.findOne(id, request.user);
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Ранее сгенерированный .docx файл',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Имя файла и значения переменных',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Договор Иванов' },
+        values: {
+          type: 'object',
+          example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
+        },
+      },
+    },
+  })
+  async extract(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<{ values: Record<string, any>; name: string }> {
+    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+      throw ApiError.BadRequest('Файл слишком большой');
+    return this.documentsService.extract(file.buffer);
   }
 
-  // GET /documents - Get all documents
-  @Get()
-  @UseGuards(AuthGuard) // только авторизованные
+  @Post('update')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === DOCX_MIME) {
+        cb(null, true);
+      } else {
+        cb(ApiError.BadRequest('Разрешены только файлы .docx'), false);
+      }
+    },
+  }))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Get all documents',
-    description: 'User can access their own documents<br><br>Admins dont have special access to all documents',
+    summary: 'Обновить документ',
+    description: 'Обновляет значения переменных в ранее сгенерированном .docx файле и возвращает новый файл',
   })
-  findAll(@Req() request: any) {
-    return this.documentsService.findAll(request.user);
-  }
-
-  // PATCH /documents/:id - Update a document
-  @Patch(':id')
-  @UseGuards(AuthGuard) // только авторизованные
-  @ApiOperation({
-    summary: 'Update a specific document',
-    description: 'User can update their own documents<br><br>Admins can update any document',
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'values'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Ранее сгенерированный .docx файл',
+        },
+        name: {
+          type: 'string',
+          example: 'Договор Петров',
+          description: 'Новое имя файла (без расширения)',
+        },
+        values: {
+          type: 'object',
+          example: '{"name":"Егор Егоров","date":"20.02.2001","amount":"10000"}',
+          description: 'Новые значения переменных',
+        },
+      },
+    },
   })
-  update(@Param('id') id: string, @Body() documentToEdit: IDocumentToEdit, @Req() request: any) {
-    return this.documentsService.update(id, request.user, documentToEdit);
-  }
-
-  // DELETE /documents/:id - Delete a document
-  @Delete(':id')
-  @UseGuards(AuthGuard) // только авторизованные
-  @ApiOperation({
-    summary: 'Delete a specific document',
-    description: 'User can delete their own documents<br><br>Admins can delete any document',
+  @ApiResponse({
+    status: 200,
+    description: 'Новый .docx документ',
   })
-  delete(@Param('id') id: string, @Req() request: any) {
-    return this.documentsService.delete(id, request.user);
+  async update(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('values') valuesRaw: string,
+    @Body('name') name?: string,
+  ): Promise<StreamableFile> {
+    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+      throw ApiError.BadRequest('Файл слишком большой');
+    const values: Record<string, any> = JSON.parse(valuesRaw);
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name);
+    return new StreamableFile(buffer, {
+      type: DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.docx`,
+    });
   }
 }
