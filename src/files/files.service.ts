@@ -191,7 +191,7 @@ export class FilesService {
         const name = tag.name.trim();
 
         if (/\s/.test(name)) {
-          throw ApiError.BadRequest(`Неверный синтаксис тега: "{{${tag.rawText}}}". Имя переменной не должно содержать пробелы`);
+          throw ApiError.BadRequest(`Неверный синтаксис тега: "${tag.rawText}". Имя переменной не должно содержать пробелы`);
         }
 
         if (tag.disposition === 'Open') {
