@@ -116,7 +116,7 @@ export class TemplatesService {
       const extractedVariables = await this.filesService.extractVariables(newFile);
       
       if (extractedVariables.length === 0) {
-        throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {{Имя}}');
+        throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
       }
 
       if (template.storageType === 'system') {
@@ -289,7 +289,7 @@ export class TemplatesService {
 
     const variables = await this.filesService.extractVariables(file);
     if (variables.length === 0) {
-      throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {{Имя}}');
+      throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
     }
 
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
