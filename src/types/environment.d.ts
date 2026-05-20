@@ -19,6 +19,7 @@ declare global {
       REDIS_DB: string
 
       CLIENT_URL: string
+      DOMAIN?: string
 
       JWT_ACCESS_SECRET: string
       JWT_REFRESH_SECRET: string
