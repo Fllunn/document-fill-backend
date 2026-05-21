@@ -1,30 +1,36 @@
 import { Model } from 'mongoose';
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import JSZip from 'jszip';
 import * as zlib from 'zlib';
-import * as os from 'os';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { createWorkerConverter } from '@matbee/libreoffice-converter/server';
 import { Template } from 'src/templates/schemas/templates.schema';
 import { FilesService } from 'src/files/files.service';
 import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
 
-const execFileAsync = promisify(execFile);
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
 @Injectable()
-export class DocumentsService {
+export class DocumentsService implements OnModuleInit, OnModuleDestroy {
+  private converter: Awaited<ReturnType<typeof createWorkerConverter>>;
+
   constructor(
     @InjectModel(Template.name) private templateModel: Model<Template>,
     private filesService: FilesService,
     private cryptoService: CryptoService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    this.converter = await createWorkerConverter();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.converter.destroy();
+  }
 
   async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx'): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
@@ -40,7 +46,7 @@ export class DocumentsService {
     const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values, name: docName };
 
     const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
-    const buffer = format === 'pdf' ? await this.convertToPdf(docxBuffer) : docxBuffer;
+    const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
 
     return { buffer, name: docName };
   }
@@ -62,26 +68,14 @@ export class DocumentsService {
     const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values, name: docName };
 
     const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
-    const buffer = format === 'pdf' ? await this.convertToPdf(docxBuffer) : docxBuffer;
+    const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
 
     return { buffer, name: docName };
   }
 
   private async convertToPdf(docxBuffer: Buffer): Promise<Buffer> {
-    const soffice = process.env.SOFFICE_PATH ?? 'soffice';
-    const tmpDir = os.tmpdir();
-    const tmpId = `doc_${Date.now()}_${process.pid}`;
-    const tmpInput = path.join(tmpDir, `${tmpId}.docx`);
-    const tmpOutput = path.join(tmpDir, `${tmpId}.pdf`);
-
-    await fs.writeFile(tmpInput, docxBuffer);
-    try {
-      await execFileAsync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', tmpDir, tmpInput]);
-      return await fs.readFile(tmpOutput);
-    } finally {
-      await fs.unlink(tmpInput).catch(() => {});
-      await fs.unlink(tmpOutput).catch(() => {});
-    }
+    const result = await this.converter.convert(docxBuffer, { outputFormat: 'pdf' });
+    return Buffer.from(result.data);
   }
 
   private async embedMeta(docxBuffer: Buffer, encryptedMeta: string): Promise<Buffer> {

@@ -18,6 +18,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -66,6 +67,7 @@ export class DocumentsController {
       },
     },
   })
+  @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
     description: 'Готовый документ .docx',
@@ -176,6 +178,7 @@ export class DocumentsController {
       },
     },
   })
+  @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
     description: 'Новый .docx документ',
