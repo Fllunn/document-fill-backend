@@ -172,6 +172,49 @@ export class TemplatesController {
     res.end(buffer);
   }
 
+  @Delete(':id/names')
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'Удаление сохраненного паттерна названия',
+    description: 'Удаляет паттерн из списка сохраненных названий пользовательского шаблона',
+  })
+  @ApiParam({ name: 'id', type: 'string', required: true, description: 'ID шаблона' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['pattern'],
+      properties: {
+        pattern: { type: 'string', example: 'Договор_{Компания}' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200 })
+  removeSavedName(
+    @Param('id') id: string,
+    @Body('pattern') pattern: string,
+    @Req() request: any,
+  ) {
+    return this.templatesService.removeSavedName(id, pattern, request.user);
+  }
+
+  @Get(':id/names')
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'Получение сохраненных названий документов',
+    description: 'Возвращает список названий',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    required: true,
+    description: 'ID шаблона',
+    example: '64b8f0c2e1b2c3d4e5f67890',
+  })
+  @ApiResponse({ status: 200, description: 'Список сохраненных названий' })
+  getSavedNames(@Param('id') id: string, @Req() request: any) {
+    return this.templatesService.getSavedNames(id, request.user);
+  }
+
   @Get(':id/variables')
   @UseGuards(AuthGuard) // только авторизованные
   @ApiOperation({

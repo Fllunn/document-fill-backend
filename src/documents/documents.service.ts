@@ -10,6 +10,7 @@ import { FilesService } from 'src/files/files.service';
 import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
+import { SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -32,7 +33,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     await this.converter.destroy();
   }
 
-  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx'): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
@@ -47,6 +48,16 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
 
     const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
     const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
+
+    if (namePattern && template.storageType === 'user') {
+      const savedNames: string[] = template.savedNames ?? [];
+      if (!savedNames.includes(namePattern) && savedNames.length < SAVED_NAMES_LIMIT) {
+        await this.templateModel.findByIdAndUpdate(
+          templateId,
+          { $push: { savedNames: namePattern } },
+        ).lean().exec();
+      }
+    }
 
     return { buffer, name: docName };
   }

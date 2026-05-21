@@ -246,14 +246,21 @@ export class FilesService {
 
     if (filePath.startsWith('users/')) {
       const presignedUrl = await YaCloud.generatePresignedUrl(this.normalizeYCFilePath(filePath));
-      const response = await fetch(presignedUrl);
-      if (!response.ok) {
+      try {
+        const response = await fetch(presignedUrl);
+        if (!response.ok) {
+          throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
+        }
+        return Buffer.from(await response.arrayBuffer());
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
         throw ApiError.Internal('Ошибка при получении файла из облачного хранилища');
       }
-      return Buffer.from(await response.arrayBuffer());
     }
 
-    const pathLocal = path.join(process.cwd(), 'storage/templates/system', filePath);
+    const pathLocal = path.isAbsolute(filePath)
+      ? path.normalize(filePath)
+      : path.join(process.cwd(), 'storage', 'templates', 'system', filePath);
     try {
       return fs.readFileSync(pathLocal);
     } catch {

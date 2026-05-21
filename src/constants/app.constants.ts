@@ -1,0 +1,1 @@
+﻿export const SAVED_NAMES_LIMIT = 5;

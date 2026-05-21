@@ -59,6 +59,11 @@ export class DocumentsController {
           example: 'Договор Иванов',
           description: 'Имя файла (без расширения)',
         },
+        namePattern: {
+          type: 'string',
+          example: 'Договор {Компания}',
+          description: 'Паттерн названия с переменными для сохранения, только для пользовательских шаблонов',
+        },
         values: {
           type: 'object',
           example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
@@ -76,7 +81,7 @@ export class DocumentsController {
     @Body() dto: CreateDocumentDto,
     @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
   ): Promise<StreamableFile> {
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format);
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern);
     return new StreamableFile(buffer, {
       type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
