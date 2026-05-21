@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   StreamableFile,
   UploadedFile,
@@ -17,13 +18,13 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
-  ApiProduces,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { DocumentFormat, DocumentFormatDto } from './dto/document-format.dto';
 import ApiError from 'src/exceptions/errors/api-error';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -69,11 +70,14 @@ export class DocumentsController {
     status: 200,
     description: 'Готовый документ .docx',
   })
-  async create(@Body() dto: CreateDocumentDto): Promise<StreamableFile> {
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name);
+  async create(
+    @Body() dto: CreateDocumentDto,
+    @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
+  ): Promise<StreamableFile> {
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format);
     return new StreamableFile(buffer, {
-      type: DOCX_MIME,
-      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.docx`,
+      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
     });
   }
 
@@ -179,16 +183,17 @@ export class DocumentsController {
   async update(
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
+    @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
   ): Promise<StreamableFile> {
     if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     const values: Record<string, any> = JSON.parse(valuesRaw);
-    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name);
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format);
     return new StreamableFile(buffer, {
-      type: DOCX_MIME,
-      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.docx`,
+      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.${format}`,
     });
   }
 }

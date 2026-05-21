@@ -3,6 +3,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import JSZip from 'jszip';
 import * as zlib from 'zlib';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Template } from 'src/templates/schemas/templates.schema';
 import { FilesService } from 'src/files/files.service';
@@ -10,6 +14,7 @@ import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
 
+const execFileAsync = promisify(execFile);
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
@@ -21,7 +26,7 @@ export class DocumentsService {
     private cryptoService: CryptoService,
   ) {}
 
-  async create(templateId: string, values: Record<string, any>, name?: string): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx'): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
@@ -34,7 +39,10 @@ export class DocumentsService {
     const compressedTemplate = await gzip(templateBuffer);
     const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values, name: docName };
 
-    return { buffer: await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta))), name: docName };
+    const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
+    const buffer = format === 'pdf' ? await this.convertToPdf(docxBuffer) : docxBuffer;
+
+    return { buffer, name: docName };
   }
 
   async extract(fileBuffer: Buffer): Promise<{ values: Record<string, any>; name: string }> {
@@ -43,7 +51,7 @@ export class DocumentsService {
     return { values: meta.values, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string): Promise<{ buffer: Buffer; name: string }> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx'): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
@@ -53,7 +61,27 @@ export class DocumentsService {
     const docName = name ?? meta.name ?? 'document';
     const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values, name: docName };
 
-    return { buffer: await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta))), name: docName };
+    const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
+    const buffer = format === 'pdf' ? await this.convertToPdf(docxBuffer) : docxBuffer;
+
+    return { buffer, name: docName };
+  }
+
+  private async convertToPdf(docxBuffer: Buffer): Promise<Buffer> {
+    const soffice = process.env.SOFFICE_PATH ?? 'soffice';
+    const tmpDir = os.tmpdir();
+    const tmpId = `doc_${Date.now()}_${process.pid}`;
+    const tmpInput = path.join(tmpDir, `${tmpId}.docx`);
+    const tmpOutput = path.join(tmpDir, `${tmpId}.pdf`);
+
+    await fs.writeFile(tmpInput, docxBuffer);
+    try {
+      await execFileAsync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', tmpDir, tmpInput]);
+      return await fs.readFile(tmpOutput);
+    } finally {
+      await fs.unlink(tmpInput).catch(() => {});
+      await fs.unlink(tmpOutput).catch(() => {});
+    }
   }
 
   private async embedMeta(docxBuffer: Buffer, encryptedMeta: string): Promise<Buffer> {

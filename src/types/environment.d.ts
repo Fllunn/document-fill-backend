@@ -31,6 +31,8 @@ declare global {
       YC_BUCKET_NAME: string
 
       DOCUMENT_ENCRYPTION_KEY: string
+
+      SOFFICE_PATH?: string // только локально, путь до LibreOffice, D:/Apps/LibreOffice/program/soffice.exe
     }
   }
 }
