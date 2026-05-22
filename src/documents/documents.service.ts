@@ -11,6 +11,7 @@ import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
 import { SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
+import sharp from 'sharp';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -40,11 +41,12 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const templateBuffer = await this.filesService.getTemplateBuffer(template.filePath);
-    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, values);
+    const processedValues = format === 'docx' ? await this.convertSvgValues(values) : values;
+    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = name ?? 'document';
     const compressedTemplate = await gzip(templateBuffer);
-    const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values, name: docName };
+    const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values: this.stripImageValues(values), name: docName };
 
     const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
     const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
@@ -73,10 +75,11 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
     const templateBuffer = await gunzip(Buffer.from(meta.templateBase64, 'base64'));
-    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, values);
+    const processedValues = format === 'docx' ? await this.convertSvgValues(values) : values;
+    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = name ?? meta.name ?? 'document';
-    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values, name: docName };
+    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values: this.stripImageValues(values), name: docName };
 
     const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
     const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
@@ -90,35 +93,121 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async embedMeta(docxBuffer: Buffer, encryptedMeta: string): Promise<Buffer> {
-    // открываем .docx как zip
     const zip = await JSZip.loadAsync(docxBuffer);
 
-    // добавляем [Content_Types].xml чтобы ворд не ругался на сломанный файл
+    // docProps/custom.xml
+    const customPropsPath = 'docProps/custom.xml';
+    const existingCustomFile = zip.file(customPropsPath);
+
+    if (existingCustomFile) {
+      let xml = await existingCustomFile.async('string');
+      if (xml.includes('name="AppMeta"')) {
+        xml = xml.replace(
+          /(<property[^>]*name="AppMeta"[^>]*>)<vt:lpwstr>[\s\S]*?<\/vt:lpwstr>/,
+          `$1<vt:lpwstr>${encryptedMeta}</vt:lpwstr>`,
+        );
+      } else {
+        const pids = [...xml.matchAll(/pid="(\d+)"/g)].map(m => parseInt(m[1]));
+        const nextPid = pids.length > 0 ? Math.max(...pids) + 1 : 2;
+        xml = xml.replace(
+          '</Properties>',
+          `<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="${nextPid}" name="AppMeta"><vt:lpwstr>${encryptedMeta}</vt:lpwstr></property></Properties>`,
+        );
+      }
+      zip.file(customPropsPath, xml);
+    } else {
+      zip.file(
+        customPropsPath,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="AppMeta"><vt:lpwstr>${encryptedMeta}</vt:lpwstr></property></Properties>`,
+      );
+    }
+
+    // регистрируем content type для custom properties
     const contentTypesFile = zip.file('[Content_Types].xml');
     if (contentTypesFile) {
       let contentTypes = await contentTypesFile.async('string');
-      if (!contentTypes.includes('Extension="dat"')) {
+      if (!contentTypes.includes('custom-properties+xml')) {
         contentTypes = contentTypes.replace(
           '</Types>',
-          '<Default Extension="dat" ContentType="application/octet-stream"/></Types>',
+          '<Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/></Types>',
         );
         zip.file('[Content_Types].xml', contentTypes);
       }
     }
 
-    // добавляем метаданные в файл app_meta.dat внутри архива
-    zip.file('app_meta.dat', encryptedMeta, { compression: 'DEFLATE' });
+    // добавляем relationship для custom properties в _rels/.rels
+    const relsFile = zip.file('_rels/.rels');
+    if (relsFile) {
+      let rels = await relsFile.async('string');
+      if (!rels.includes('custom-properties')) {
+        const existingIds = [...rels.matchAll(/Id="rId(\d+)"/g)].map(m => parseInt(m[1]));
+        const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
+        rels = rels.replace(
+          '</Relationships>',
+          `<Relationship Id="rId${nextId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" Target="docProps/custom.xml"/></Relationships>`,
+        );
+        zip.file('_rels/.rels', rels);
+      }
+    }
+
     return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  }
+
+  private async convertSvgValues(values: Record<string, any>): Promise<Record<string, any>> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(values)) {
+      if (Array.isArray(value)) {
+        result[key] = await Promise.all(
+          value.map((item) =>
+            item && typeof item === 'object' ? this.convertSvgValues(item) : item,
+          ),
+        );
+      } else if (value && typeof value === 'object' && value._type === 'image' && value.format === 'image/svg+xml') {
+        const pngBuffer = await sharp(Buffer.from(value.source, 'base64')).png().toBuffer();
+
+        result[key] = { ...value, source: pngBuffer.toString('base64'), format: 'image/png' };
+      } else {
+        result[key] = value;
+      }
+    }
+    
+    return result;
+  }
+
+  private stripImageValues(values: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    
+    for (const [key, value] of Object.entries(values)) {
+      if (Array.isArray(value)) {
+        result[key] = value.map((item) =>
+          item && typeof item === 'object' ? this.stripImageValues(item) : item,
+        );
+      } else if (value && typeof value === 'object' && value._type === 'image') {
+        result[key] = null;
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
   }
 
   private async readMeta(docxBuffer: Buffer): Promise<string> {
     const zip = await JSZip.loadAsync(docxBuffer);
-    const metaFile = zip.file('app_meta.dat');
+    const customPropsFile = zip.file('docProps/custom.xml');
 
-    if (!metaFile) {
+    if (!customPropsFile) {
       throw ApiError.BadRequest('Данный файл был сгенерирован не через наш сервис или был поврежден');
     }
 
-    return metaFile.async('string');
+    const xml = await customPropsFile.async('string');
+    const match = xml.match(/<property[^>]*name="AppMeta"[^>]*>[\s\S]*?<vt:lpwstr>([\s\S]*?)<\/vt:lpwstr>/);
+
+    if (!match) {
+      throw ApiError.BadRequest('Данный файл был сгенерирован не через наш сервис или был поврежден');
+    }
+
+    return match[1];
   }
 }

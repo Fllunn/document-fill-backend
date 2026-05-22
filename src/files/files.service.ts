@@ -8,6 +8,7 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
+import { ALLOWED_IMAGE_FORMATS, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE } from 'src/constants/app.constants';
 
 const {
   TemplateHandler,
@@ -268,8 +269,51 @@ export class FilesService {
     }
   }
 
+  private transformImageValues(
+    values: Record<string, any>,
+    state = { totalSize: 0 },
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(values)) {
+      if (Array.isArray(value)) {
+        result[key] = value.map((item) =>
+          item && typeof item === 'object' ? this.transformImageValues(item, state) : item,
+        );
+      } else if (value && typeof value === 'object' && value._type === 'image') {
+        if (!ALLOWED_IMAGE_FORMATS.includes(value.format)) {
+          throw ApiError.BadRequest(
+            `Недопустимый формат изображения "${key}". Разрешены: ${ALLOWED_IMAGE_FORMATS.join(', ')}`,
+          );
+        }
+        const sizeBytes = Math.floor(value.source.length * 0.75);
+
+        if (sizeBytes > IMAGE_SINGLE_MAX_SIZE) {
+          throw ApiError.BadRequest(
+            `Размер изображения "${key}" превышает ${IMAGE_SINGLE_MAX_SIZE / 1024} КБ`,
+          );
+        }
+
+        state.totalSize += sizeBytes;
+
+        if (state.totalSize > IMAGE_TOTAL_MAX_SIZE) {
+          throw ApiError.BadRequest(
+            `Суммарный размер изображений превышает ${IMAGE_TOTAL_MAX_SIZE / 1024 / 1024} МБ`,
+          );
+        }
+
+        result[key] = { ...value, source: Buffer.from(value.source, 'base64') };
+      } else {
+        result[key] = value;
+      }
+    }
+    
+    return result;
+  }
+
   async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
-    const result = await this.templateHandler.process(templateBuffer, values);
+    const transformed = this.transformImageValues(values);
+    const result = await this.templateHandler.process(templateBuffer, transformed);
     return Buffer.from(result);
   }
 

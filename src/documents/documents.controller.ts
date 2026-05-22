@@ -27,9 +27,9 @@ import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DocumentFormat, DocumentFormatDto } from './dto/document-format.dto';
 import ApiError from 'src/exceptions/errors/api-error';
+import { DOCUMENT_MAX_SIZE } from 'src/constants/app.constants';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const MAX_FILE_SIZE = 512 * 1024 * 2
 
 @ApiBearerAuth()
 @ApiTags('Документы')
@@ -137,7 +137,7 @@ export class DocumentsController {
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ values: Record<string, any>; name: string }> {
-    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+    if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     return this.documentsService.extract(file.buffer);
   }
@@ -147,6 +147,7 @@ export class DocumentsController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
+    limits: { fieldSize: 10 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === DOCX_MIME) {
         cb(null, true);
@@ -195,7 +196,7 @@ export class DocumentsController {
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
   ): Promise<StreamableFile> {
-    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+    if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     const values: Record<string, any> = JSON.parse(valuesRaw);
     const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format);

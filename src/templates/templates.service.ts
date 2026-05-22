@@ -22,6 +22,7 @@ import ApiError from 'src/exceptions/errors/api-error';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UpdateTemplateDto } from './dto/update-template.dto';
+import { TEMPLATE_MAX_SIZE } from 'src/constants/app.constants';
 
 @Injectable()
 export class TemplatesService {
@@ -315,7 +316,7 @@ export class TemplatesService {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    if (!this.rolesService.isAdmin(user.roles) && file.size > 512 * 1024) {
+    if (!this.rolesService.isAdmin(user.roles) && file.size > TEMPLATE_MAX_SIZE) {
       throw ApiError.BadRequest('Размер файла не должен превышать 512 КБ');
     }
 
