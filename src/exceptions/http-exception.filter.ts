@@ -12,7 +12,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // console.log(exception)
 
     if (exception.getStatus() === 500)
-      return res.status(500).json({ message: 'Непредвиденная ошибка' })
+      return res.status(500).json({ message: 'Пожалуйста, попробуйте еще раз или попробуйте позже' })
 
     if (exception.getStatus() === 429) {
       return res.status(429).json({ message: 'Слишком много запросов. Вы заблокированы на 5 минут!' })

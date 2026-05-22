@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import * as express from 'express';
 import { HttpExceptionFilter } from './exceptions/http-exception.filter';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
@@ -11,7 +12,11 @@ import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  app.use('/documents', express.json({ limit: '3mb' }));
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   app.enableCors({
     origin: [process.env.CLIENT_URL, 'http://localhost:3000'],

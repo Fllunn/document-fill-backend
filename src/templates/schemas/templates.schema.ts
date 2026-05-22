@@ -18,6 +18,9 @@ export class Template {
   @Prop({ type: [String], default: [] })
   variables: string[];
 
+  @Prop({ type: [String], default: [] })
+  savedNames: string[];
+
   @Prop({ required: true, enum: ['system', 'user'] })
   storageType: string;
 

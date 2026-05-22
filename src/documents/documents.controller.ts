@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   StreamableFile,
   UploadedFile,
@@ -17,17 +18,25 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
-  ApiProduces,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { DocumentFormat, DocumentFormatDto } from './dto/document-format.dto';
 import ApiError from 'src/exceptions/errors/api-error';
+import { DOCUMENT_MAX_SIZE } from 'src/constants/app.constants';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const MAX_FILE_SIZE = 512 * 1024 * 2
+
+function hasSvg(values: Record<string, any>): boolean {
+  return Object.values(values).some((v) => {
+    if (Array.isArray(v)) return v.some((item) => item && typeof item === 'object' && hasSvg(item));
+    return v && typeof v === 'object' && v._type === 'image' && v.format === 'image/svg+xml';
+  });
+}
 
 @ApiBearerAuth()
 @ApiTags('Документы')
@@ -57,6 +66,11 @@ export class DocumentsController {
           example: 'Договор Иванов',
           description: 'Имя файла (без расширения)',
         },
+        namePattern: {
+          type: 'string',
+          example: 'Договор {Компания}',
+          description: 'Паттерн названия с переменными для сохранения, только для пользовательских шаблонов',
+        },
         values: {
           type: 'object',
           example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
@@ -65,15 +79,22 @@ export class DocumentsController {
       },
     },
   })
+  @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
     description: 'Готовый документ .docx',
   })
-  async create(@Body() dto: CreateDocumentDto): Promise<StreamableFile> {
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name);
+  async create(
+    @Req() req: any,
+    @Body() dto: CreateDocumentDto,
+    @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
+  ): Promise<StreamableFile> {
+    if (!req.user.roles.includes('admin') && hasSvg(dto.values))
+      throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern);
     return new StreamableFile(buffer, {
-      type: DOCX_MIME,
-      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.docx`,
+      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
     });
   }
 
@@ -126,7 +147,7 @@ export class DocumentsController {
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ values: Record<string, any>; name: string }> {
-    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+    if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     return this.documentsService.extract(file.buffer);
   }
@@ -136,6 +157,7 @@ export class DocumentsController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
+    limits: { fieldSize: 10 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === DOCX_MIME) {
         cb(null, true);
@@ -172,6 +194,7 @@ export class DocumentsController {
       },
     },
   })
+  @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
     description: 'Новый .docx документ',
@@ -179,16 +202,19 @@ export class DocumentsController {
   async update(
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
+    @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
   ): Promise<StreamableFile> {
-    if (!req.user.roles.includes('admin') && file.size > MAX_FILE_SIZE)
+    if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     const values: Record<string, any> = JSON.parse(valuesRaw);
-    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name);
+    if (!req.user.roles.includes('admin') && hasSvg(values))
+      throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format);
     return new StreamableFile(buffer, {
-      type: DOCX_MIME,
-      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.docx`,
+      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.${format}`,
     });
   }
 }

@@ -22,6 +22,7 @@ import ApiError from 'src/exceptions/errors/api-error';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UpdateTemplateDto } from './dto/update-template.dto';
+import { TEMPLATE_MAX_SIZE } from 'src/constants/app.constants';
 
 @Injectable()
 export class TemplatesService {
@@ -226,6 +227,59 @@ export class TemplatesService {
     return grouped;
   }
 
+  async removeSavedName(id: string, pattern: string, user: any): Promise<boolean> {
+    if (!isValidObjectId(id)) {
+      throw ApiError.BadRequest('Некорректный ID шаблона');
+    }
+
+    const template = await this.templateModel
+      .findById(id)
+      .select('storageType userId')
+      .lean()
+      .exec();
+
+    if (!template) {
+      throw ApiError.NotFound();
+    }
+
+    if (template.storageType !== 'user' || template.userId?.toString() !== user._id.toString()) {
+      throw ApiError.AccessDenied();
+    }
+
+    await this.templateModel.findByIdAndUpdate(
+      id,
+      { $pull: { savedNames: pattern } },
+    ).lean().exec();
+
+    return true;
+  }
+
+  async getSavedNames(id: string, user: any): Promise<string[]> {
+    if (!isValidObjectId(id)) {
+      throw ApiError.BadRequest('Некорректный ID шаблона');
+    }
+
+    const template = await this.templateModel
+      .findById(id)
+      .select('storageType userId savedNames')
+      .lean()
+      .exec();
+
+    if (!template) {
+      throw ApiError.NotFound();
+    }
+
+    if (template.storageType === 'system') {
+      return [];
+    }
+
+    if (template.userId?.toString() !== user._id.toString()) {
+      throw ApiError.AccessDenied();
+    }
+
+    return template.savedNames ?? [];
+  }
+
   async downloadTemplate(id: string, user: any): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel
       .findById(id)
@@ -262,7 +316,7 @@ export class TemplatesService {
       throw ApiError.BadRequest('Файл не был загружен');
     }
 
-    if (!this.rolesService.isAdmin(user.roles) && file.size > 512 * 1024) {
+    if (!this.rolesService.isAdmin(user.roles) && file.size > TEMPLATE_MAX_SIZE) {
       throw ApiError.BadRequest('Размер файла не должен превышать 512 КБ');
     }
 
