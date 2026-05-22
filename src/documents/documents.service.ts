@@ -11,7 +11,6 @@ import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
 import { SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
-import sharp from 'sharp';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -41,7 +40,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const templateBuffer = await this.filesService.getTemplateBuffer(template.filePath);
-    const processedValues = format === 'docx' ? await this.convertSvgValues(values) : values;
+    const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = name ?? 'document';
@@ -75,7 +74,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
     const templateBuffer = await gunzip(Buffer.from(meta.templateBase64, 'base64'));
-    const processedValues = format === 'docx' ? await this.convertSvgValues(values) : values;
+    const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = name ?? meta.name ?? 'document';
@@ -151,28 +150,6 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  }
-
-  private async convertSvgValues(values: Record<string, any>): Promise<Record<string, any>> {
-    const result: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(values)) {
-      if (Array.isArray(value)) {
-        result[key] = await Promise.all(
-          value.map((item) =>
-            item && typeof item === 'object' ? this.convertSvgValues(item) : item,
-          ),
-        );
-      } else if (value && typeof value === 'object' && value._type === 'image' && value.format === 'image/svg+xml') {
-        const pngBuffer = await sharp(Buffer.from(value.source, 'base64')).png().toBuffer();
-
-        result[key] = { ...value, source: pngBuffer.toString('base64'), format: 'image/png' };
-      } else {
-        result[key] = value;
-      }
-    }
-    
-    return result;
   }
 
   private stripImageValues(values: Record<string, any>): Record<string, any> {

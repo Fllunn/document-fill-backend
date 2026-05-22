@@ -31,6 +31,13 @@ import { DOCUMENT_MAX_SIZE } from 'src/constants/app.constants';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
+function hasSvg(values: Record<string, any>): boolean {
+  return Object.values(values).some((v) => {
+    if (Array.isArray(v)) return v.some((item) => item && typeof item === 'object' && hasSvg(item));
+    return v && typeof v === 'object' && v._type === 'image' && v.format === 'image/svg+xml';
+  });
+}
+
 @ApiBearerAuth()
 @ApiTags('Документы')
 @Controller('documents')
@@ -78,9 +85,12 @@ export class DocumentsController {
     description: 'Готовый документ .docx',
   })
   async create(
+    @Req() req: any,
     @Body() dto: CreateDocumentDto,
     @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
   ): Promise<StreamableFile> {
+    if (!req.user.roles.includes('admin') && hasSvg(dto.values))
+      throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
     const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern);
     return new StreamableFile(buffer, {
       type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
@@ -199,6 +209,8 @@ export class DocumentsController {
     if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     const values: Record<string, any> = JSON.parse(valuesRaw);
+    if (!req.user.roles.includes('admin') && hasSvg(values))
+      throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
     const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format);
     return new StreamableFile(buffer, {
       type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
