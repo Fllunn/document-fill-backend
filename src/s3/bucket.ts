@@ -17,6 +17,7 @@ class YandexCloud {
       requestHandler: {
         requestTimeout: 10000,
         connectionTimeout: 10000,
+        throwOnRequestTimeout: true,
       },
     })
   }
