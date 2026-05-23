@@ -33,19 +33,19 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     await this.converter.destroy();
   }
 
-  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
     }
 
     const templateBuffer = await this.filesService.getTemplateBuffer(template.filePath);
-    const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
+    const processedValues = this.stripArraySuffix(format === 'pdf' ? values : this.stripImageValues(values));
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = (name ?? 'document').slice(0, 150);
     const compressedTemplate = await gzip(templateBuffer);
-    const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values: this.stripImageValues(values), name: docName };
+    const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values: this.stripImageValues(values), name: docName, ...(rawValues && { rawValues }) };
 
     if (maxSize && filledBuffer.length > maxSize)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
@@ -67,22 +67,22 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     return { buffer, name: docName };
   }
 
-  async extract(fileBuffer: Buffer): Promise<{ values: Record<string, any>; name: string }> {
+  async extract(fileBuffer: Buffer): Promise<{ values: Record<string, any>; rawValues: Record<string, any> | null; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
-    return { values: meta.values, name: meta.name };
+    return { values: this.addArraySuffix(meta.values), rawValues: meta.rawValues ? this.addArraySuffix(meta.rawValues) : null, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number): Promise<{ buffer: Buffer; name: string }> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
     const templateBuffer = await gunzip(Buffer.from(meta.templateBase64, 'base64'));
-    const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
+    const processedValues = this.stripArraySuffix(format === 'pdf' ? values : this.stripImageValues(values));
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
     const docName = (name ?? meta.name ?? 'document').slice(0, 150);
-    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values: this.stripImageValues(values), name: docName };
+    const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values: this.stripImageValues(values), name: docName, ...(rawValues && { rawValues }) };
 
     if (maxSize && filledBuffer.length > maxSize)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
@@ -169,6 +169,18 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  }
+
+  private stripArraySuffix(values: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      Object.entries(values).map(([k, v]) => [k.endsWith('[]') ? k.slice(0, -2) : k, v]),
+    );
+  }
+
+  private addArraySuffix(values: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      Object.entries(values).map(([k, v]) => [Array.isArray(v) && !k.endsWith('[]') ? `${k}[]` : k, v]),
+    );
   }
 
   private stripImageValues(values: Record<string, any>): Record<string, any> {

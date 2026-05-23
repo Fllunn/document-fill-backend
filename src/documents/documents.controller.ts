@@ -137,11 +137,13 @@ export class DocumentsController {
     if (!isAdmin && hasSvg(dto.values))
       throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
     if (!isAdmin) validateValues(dto.values);
-    if (!isAdmin && countTotalChars(dto.values) > TOTAL_VALUES_MAX_LENGTH)
+    if (dto.rawValues && !isAdmin) validateValues(dto.rawValues);
+    const totalChars = countTotalChars(dto.values) + (dto.rawValues ? countTotalChars(dto.rawValues) : 0);
+    if (!isAdmin && totalChars > TOTAL_VALUES_MAX_LENGTH)
       throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
     const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
     const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout);
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout, dto.rawValues);
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
     return new StreamableFile(buffer, {
@@ -184,22 +186,20 @@ export class DocumentsController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Имя файла и значения переменных',
+    description: 'Имя файла, вычисленные значения и формулы)',
     schema: {
       type: 'object',
       properties: {
         name: { type: 'string', example: 'Договор Иванов' },
-        values: {
-          type: 'object',
-          example: { name: 'Иван Иванов', date: '10.02.2000', amount: '5000' },
-        },
+        values: { type: 'object', example: { name: 'Иван', amount: '3000' } },
+        rawValues: { type: 'object', nullable: true, example: { amount: 'sum({price1};{price2})' } },
       },
     },
   })
   async extract(
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<{ values: Record<string, any>; name: string }> {
+  ): Promise<{ values: Record<string, any>; rawValues: Record<string, any> | null; name: string }> {
     if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
     return this.documentsService.extract(file.buffer);
@@ -258,6 +258,7 @@ export class DocumentsController {
     @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
+    @Body('rawValues') rawValuesRaw?: string,
   ): Promise<StreamableFile> {
     const isAdmin = req.user.roles.includes('admin');
     if (!isAdmin && file.size > DOCUMENT_MAX_SIZE)
@@ -268,14 +269,28 @@ export class DocumentsController {
     } catch {
       throw ApiError.BadRequest('Некорректный формат данных');
     }
+    let rawValues: Record<string, any> | undefined;
+    
+    if (rawValuesRaw) {
+      try {
+        rawValues = JSON.parse(rawValuesRaw);
+      } catch {
+        throw ApiError.BadRequest('Некорректный формат данных');
+      }
+    }
+
     if (!isAdmin && hasSvg(values))
       throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
     if (!isAdmin) validateValues(values);
-    if (!isAdmin && countTotalChars(values) > TOTAL_VALUES_MAX_LENGTH)
+    if (rawValues && !isAdmin) validateValues(rawValues);
+    const totalChars = countTotalChars(values) + (rawValues ? countTotalChars(rawValues) : 0);
+
+    if (!isAdmin && totalChars > TOTAL_VALUES_MAX_LENGTH)
       throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
     const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
     const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
-    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format, maxSize, pdfTimeout);
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format, maxSize, pdfTimeout, rawValues);
+
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ. Пожалуйста, попробуйте уменьшить количество или размер изображений в документе');
     return new StreamableFile(buffer, {
