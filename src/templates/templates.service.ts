@@ -22,7 +22,7 @@ import ApiError from 'src/exceptions/errors/api-error';
 import * as path from 'path';
 import * as fs from 'fs';
 import { UpdateTemplateDto } from './dto/update-template.dto';
-import { TEMPLATE_MAX_SIZE } from 'src/constants/app.constants';
+import { TABLE_COUNT_LIMIT, TEMPLATE_FIELDS_LIMIT, TEMPLATE_MAX_SIZE, TOTAL_VALUES_MAX_LENGTH, VALUE_KEY_MAX_LENGTH } from 'src/constants/app.constants';
 
 @Injectable()
 export class TemplatesService {
@@ -115,10 +115,31 @@ export class TemplatesService {
 
     if (newFile) {
       const extractedVariables = await this.filesService.extractVariables(newFile);
-      
+
       if (extractedVariables.length === 0) {
         throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
       }
+      if (!this.rolesService.isAdmin(user.roles) && extractedVariables.length > TEMPLATE_FIELDS_LIMIT)
+        throw ApiError.BadRequest(`Шаблон содержит более ${TEMPLATE_FIELDS_LIMIT} полей`);
+
+      const tableCountUpdate = new Set(extractedVariables.filter(v => v.includes('[].')).map(v => v.split('[]')[0])).size;
+
+      if (!this.rolesService.isAdmin(user.roles) && tableCountUpdate > TABLE_COUNT_LIMIT)
+        throw ApiError.BadRequest(`Шаблон содержит более ${TABLE_COUNT_LIMIT} таблиц`);
+
+      if (!this.rolesService.isAdmin(user.roles)) {
+        for (const variable of extractedVariables) {
+          const segments = variable.replace(/\[\]/g, '.').split('.').filter(Boolean);
+          for (const segment of segments) {
+            if (segment.length > VALUE_KEY_MAX_LENGTH)
+              throw ApiError.BadRequest(`Название поля "${segment.slice(0, 50)}" превышает ${VALUE_KEY_MAX_LENGTH} символов`);
+          }
+        }
+      }
+      
+      const textLengthUpdate = await this.filesService.extractTemplateTextLength(newFile.buffer);
+      if (!this.rolesService.isAdmin(user.roles) && textLengthUpdate > TOTAL_VALUES_MAX_LENGTH)
+        throw ApiError.BadRequest('Шаблон содержит слишком много текста');
 
       if (template.storageType === 'system') {
         await this.filesService.deleteSystemFile(template.filePath);
@@ -345,6 +366,23 @@ export class TemplatesService {
     if (variables.length === 0) {
       throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
     }
+    if (!this.rolesService.isAdmin(user.roles) && variables.length > TEMPLATE_FIELDS_LIMIT)
+      throw ApiError.BadRequest(`Шаблон содержит более ${TEMPLATE_FIELDS_LIMIT} полей`);
+    const tableCount = new Set(variables.filter(v => v.includes('[].')).map(v => v.split('[]')[0])).size;
+    if (!this.rolesService.isAdmin(user.roles) && tableCount > TABLE_COUNT_LIMIT)
+      throw ApiError.BadRequest(`Шаблон содержит более ${TABLE_COUNT_LIMIT} таблиц`);
+    if (!this.rolesService.isAdmin(user.roles)) {
+      for (const variable of variables) {
+        const segments = variable.replace(/\[\]/g, '.').split('.').filter(Boolean);
+        for (const segment of segments) {
+          if (segment.length > VALUE_KEY_MAX_LENGTH)
+            throw ApiError.BadRequest(`Название поля "${segment.slice(0, 50)}" превышает ${VALUE_KEY_MAX_LENGTH} символов`);
+        }
+      }
+    }
+    const textLength = await this.filesService.extractTemplateTextLength(file.buffer);
+    if (!this.rolesService.isAdmin(user.roles) && textLength > TOTAL_VALUES_MAX_LENGTH)
+      throw ApiError.BadRequest('Шаблон содержит слишком много текста');
 
     const storageType: 'system' | 'user' = isSystem ? 'system' : 'user';
     const userId = isSystem ? null : user._id;

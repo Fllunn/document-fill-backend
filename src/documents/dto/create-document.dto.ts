@@ -6,7 +6,7 @@ export class CreateDocumentDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(150, { message: 'Название документа не должно превышать 150 символов' })
+  @MaxLength(150)
   name?: string;
 
   @IsOptional()
