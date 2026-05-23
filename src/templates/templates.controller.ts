@@ -20,6 +20,7 @@ import { TemplatesService } from './templates.service';
 import { ITemplate } from './interfaces/templates.interface';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { TEMPLATE_MAX_SIZE_CEILING } from 'src/constants/app.constants';
 import { UploadedFile } from '@nestjs/common/decorators';
 import ApiError from 'src/exceptions/errors/api-error';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiOkResponse, ApiConsumes, ApiBody, ApiTags } from '@nestjs/swagger';
@@ -120,6 +121,7 @@ export class TemplatesController {
   })
   @UseInterceptors(
     FileInterceptor('file', {
+      limits: { fileSize: TEMPLATE_MAX_SIZE_CEILING },
       fileFilter: (req, file, cb) => {
         if (
           file.mimetype ===
@@ -260,6 +262,7 @@ export class TemplatesController {
   })
   @UseInterceptors(
     FileInterceptor('file', {
+      limits: { fileSize: TEMPLATE_MAX_SIZE_CEILING },
       fileFilter: (req, file, cb) => {
         if (
           file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' // .docx

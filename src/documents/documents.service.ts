@@ -33,7 +33,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     await this.converter.destroy();
   }
 
-  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
@@ -43,12 +43,16 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
-    const docName = name ?? 'document';
+    const docName = (name ?? 'document').slice(0, 150);
     const compressedTemplate = await gzip(templateBuffer);
     const meta: IDocumentMeta = { templateBase64: compressedTemplate.toString('base64'), values: this.stripImageValues(values), name: docName };
 
-    const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
-    const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
+    if (maxSize && filledBuffer.length > maxSize)
+      throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
+
+    const buffer = format === 'pdf'
+      ? await this.convertToPdf(filledBuffer, pdfTimeout)
+      : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
 
     if (namePattern && template.storageType === 'user') {
       const savedNames: string[] = template.savedNames ?? [];
@@ -69,7 +73,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     return { values: meta.values, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx'): Promise<{ buffer: Buffer; name: string }> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
@@ -77,17 +81,32 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     const processedValues = format === 'pdf' ? values : this.stripImageValues(values);
     const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
 
-    const docName = name ?? meta.name ?? 'document';
+    const docName = (name ?? meta.name ?? 'document').slice(0, 150);
     const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values: this.stripImageValues(values), name: docName };
 
-    const docxBuffer = await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
-    const buffer = format === 'pdf' ? await this.convertToPdf(filledBuffer) : docxBuffer;
+    if (maxSize && filledBuffer.length > maxSize)
+      throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
+
+    const buffer = format === 'pdf'
+      ? await this.convertToPdf(filledBuffer, pdfTimeout)
+      : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
 
     return { buffer, name: docName };
   }
 
-  private async convertToPdf(docxBuffer: Buffer): Promise<Buffer> {
-    const result = await this.converter.convert(docxBuffer, { outputFormat: 'pdf' });
+  private async convertToPdf(docxBuffer: Buffer, timeoutMs?: number): Promise<Buffer> {
+    const convert = this.converter.convert(docxBuffer, { outputFormat: 'pdf' });
+    if (!timeoutMs) {
+      const result = await convert;
+      return Buffer.from(result.data);
+    }
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(ApiError.BadRequest('Превышено время генерации pdf. Возможно, вы пытались сгенерировать слишком большой по размеру файл')),
+        timeoutMs,
+      ),
+    );
+    const result = await Promise.race([convert, timeout]);
     return Buffer.from(result.data);
   }
 

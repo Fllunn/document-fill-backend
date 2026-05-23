@@ -27,7 +27,7 @@ import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DocumentFormat, DocumentFormatDto } from './dto/document-format.dto';
 import ApiError from 'src/exceptions/errors/api-error';
-import { DOCUMENT_MAX_SIZE } from 'src/constants/app.constants';
+import { DOCUMENT_MAX_SIZE, DOCUMENT_MAX_SIZE_CEILING, GENERATED_DOCUMENT_MAX_SIZE, PDF_CONVERSION_TIMEOUT_MS, TABLE_COLS_LIMIT, TABLE_COUNT_LIMIT, TABLE_ROWS_LIMIT, TOTAL_VALUES_MAX_LENGTH, VALUE_KEY_MAX_LENGTH, VALUE_STRING_MAX_LENGTH } from 'src/constants/app.constants';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -36,6 +36,50 @@ function hasSvg(values: Record<string, any>): boolean {
     if (Array.isArray(v)) return v.some((item) => item && typeof item === 'object' && hasSvg(item));
     return v && typeof v === 'object' && v._type === 'image' && v.format === 'image/svg+xml';
   });
+}
+
+function countTotalChars(values: Record<string, any>): number {
+  let total = 0;
+
+  for (const value of Object.values(values)) {
+    if (typeof value === 'string') {
+      total += value.length;
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === 'object') total += countTotalChars(item);
+      }
+    } else if (value && typeof value === 'object' && value._type !== 'image') {
+      total += countTotalChars(value);
+    }
+  }
+  
+  return total;
+}
+
+function validateValues(values: Record<string, any>, state = { tableCount: 0 }): void {
+  for (const [key, value] of Object.entries(values)) {
+    if (key.length > VALUE_KEY_MAX_LENGTH)
+      throw ApiError.BadRequest(`Название поля "${key.slice(0, 50)}" превышает ${VALUE_KEY_MAX_LENGTH} символов`);
+
+    if (Array.isArray(value)) {
+      state.tableCount++;
+      if (state.tableCount > TABLE_COUNT_LIMIT)
+        throw ApiError.BadRequest(`Превышено максимальное количество таблиц (${TABLE_COUNT_LIMIT})`);
+      if (value.length > TABLE_ROWS_LIMIT)
+        throw ApiError.BadRequest(`Таблица "${key}" содержит более ${TABLE_ROWS_LIMIT} строк`);
+      for (const row of value) {
+        if (row && typeof row === 'object') {
+          if (Object.keys(row).length > TABLE_COLS_LIMIT)
+            throw ApiError.BadRequest(`Таблица "${key}" содержит более ${TABLE_COLS_LIMIT} столбцов`);
+          validateValues(row, state);
+        }
+      }
+    } else if (typeof value === 'string' && value.length > VALUE_STRING_MAX_LENGTH) {
+      throw ApiError.BadRequest(`Значение поля "${key}" превышает ${VALUE_STRING_MAX_LENGTH} символов`);
+    } else if (value && typeof value === 'object' && value._type !== 'image') {
+      validateValues(value, state);
+    }
+  }
 }
 
 @ApiBearerAuth()
@@ -89,9 +133,17 @@ export class DocumentsController {
     @Body() dto: CreateDocumentDto,
     @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
   ): Promise<StreamableFile> {
-    if (!req.user.roles.includes('admin') && hasSvg(dto.values))
+    const isAdmin = req.user.roles.includes('admin');
+    if (!isAdmin && hasSvg(dto.values))
       throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern);
+    if (!isAdmin) validateValues(dto.values);
+    if (!isAdmin && countTotalChars(dto.values) > TOTAL_VALUES_MAX_LENGTH)
+      throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
+    const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
+    const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout);
+    if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
+      throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
     return new StreamableFile(buffer, {
       type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
@@ -103,6 +155,7 @@ export class DocumentsController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
+    limits: { fileSize: DOCUMENT_MAX_SIZE_CEILING },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === DOCX_MIME) {
         cb(null, true);
@@ -157,7 +210,7 @@ export class DocumentsController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('file', {
     storage: memoryStorage(),
-    limits: { fieldSize: 10 * 1024 * 1024 },
+    limits: { fieldSize: 10 * 1024 * 1024, fileSize: DOCUMENT_MAX_SIZE_CEILING },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype === DOCX_MIME) {
         cb(null, true);
@@ -206,12 +259,25 @@ export class DocumentsController {
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
   ): Promise<StreamableFile> {
-    if (!req.user.roles.includes('admin') && file.size > DOCUMENT_MAX_SIZE)
+    const isAdmin = req.user.roles.includes('admin');
+    if (!isAdmin && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
-    const values: Record<string, any> = JSON.parse(valuesRaw);
-    if (!req.user.roles.includes('admin') && hasSvg(values))
+    let values: Record<string, any>;
+    try {
+      values = JSON.parse(valuesRaw);
+    } catch {
+      throw ApiError.BadRequest('Некорректный формат данных');
+    }
+    if (!isAdmin && hasSvg(values))
       throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
-    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format);
+    if (!isAdmin) validateValues(values);
+    if (!isAdmin && countTotalChars(values) > TOTAL_VALUES_MAX_LENGTH)
+      throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
+    const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
+    const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format, maxSize, pdfTimeout);
+    if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
+      throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ. Пожалуйста, попробуйте уменьшить количество или размер изображений в документе');
     return new StreamableFile(buffer, {
       type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.${format}`,

@@ -8,7 +8,8 @@ import * as path from 'path';
 import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
-import { ALLOWED_IMAGE_FORMATS, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE } from 'src/constants/app.constants';
+import JSZip from 'jszip';
+import { ALLOWED_IMAGE_FORMATS, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE, TEMPLATE_XML_MAX_UNCOMPRESSED } from 'src/constants/app.constants';
 
 const {
   TemplateHandler,
@@ -309,6 +310,21 @@ export class FilesService {
     }
     
     return result;
+  }
+
+  async extractTemplateTextLength(buffer: Buffer): Promise<number> {
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = zip.file('word/document.xml');
+
+    if (!docXml) return 0;
+
+    const uncompressedSize = (docXml as any)._data?.uncompressedSize ?? 0;
+
+    if (uncompressedSize > TEMPLATE_XML_MAX_UNCOMPRESSED)
+      throw ApiError.BadRequest('Шаблон содержит слишком большой документ внутри архива');
+    
+    const xml = await docXml.async('string');
+    return xml.replace(/<[^>]+>/g, '').length;
   }
 
   async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
