@@ -119,6 +119,14 @@ export class TemplatesService {
       if (extractedVariables.length === 0) {
         throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
       }
+      const tableNamesUpdate = new Set(extractedVariables.filter(v => v.includes('[]')).map(v => v.split('[]')[0]));
+
+      const simpleFieldNamesUpdate = new Set(extractedVariables.filter(v => !v.includes('[]') && !v.includes('.')));
+
+      for (const tableName of tableNamesUpdate) {
+        if (simpleFieldNamesUpdate.has(tableName))
+          throw ApiError.BadRequest(`Название таблицы "${tableName}" совпадает с названием другого поля. Пожалуйста, используйте разные названия`);
+      }
       if (!this.rolesService.isAdmin(user.roles) && extractedVariables.length > TEMPLATE_FIELDS_LIMIT)
         throw ApiError.BadRequest(`Шаблон содержит более ${TEMPLATE_FIELDS_LIMIT} полей`);
 
@@ -366,6 +374,14 @@ export class TemplatesService {
     if (variables.length === 0) {
       throw ApiError.BadRequest('В шаблоне не найдено полей для заполнения. Они должны быть в формате {Имя}');
     }
+    const tableNames = new Set(variables.filter(v => v.includes('[]')).map(v => v.split('[]')[0]));
+    const simpleFieldNames = new Set(variables.filter(v => !v.includes('[]') && !v.includes('.')));
+
+    for (const tableName of tableNames) {
+      if (simpleFieldNames.has(tableName))
+        throw ApiError.BadRequest(`Название таблицы "${tableName}" совпадает с названием другого поля. Пожалуйста, используйте разные названия`);
+    }
+    
     if (!this.rolesService.isAdmin(user.roles) && variables.length > TEMPLATE_FIELDS_LIMIT)
       throw ApiError.BadRequest(`Шаблон содержит более ${TEMPLATE_FIELDS_LIMIT} полей`);
     const tableCount = new Set(variables.filter(v => v.includes('[].')).map(v => v.split('[]')[0])).size;

@@ -16,4 +16,8 @@ export class CreateDocumentDto {
 
   @IsObject()
   values: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  rawValues?: Record<string, any>;
 }
