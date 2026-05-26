@@ -122,6 +122,16 @@ export class PhotosService {
     return true;
   }
 
+  async deleteAllByUser(userId: string): Promise<void> {
+    const photos = await this.photoModel
+      .find({ userId })
+      .select('filePath')
+      .exec();
+      
+    await Promise.all(photos.map(p => this.filesService.deleteYCFile(p.filePath)));
+    await this.photoModel.deleteMany({ userId });
+  }
+
   private normalizeOriginalName(originalName: string): string {
     const extension = path.extname(originalName);
     const baseName = path.basename(originalName, extension);

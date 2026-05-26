@@ -340,6 +340,16 @@ export class TemplatesService {
     return { buffer, name: `${template.name}.docx` };
   }
 
+  async deleteAllByUser(userId: string): Promise<void> {
+    const templates = await this.templateModel
+      .find({ storageType: 'user', userId })
+      .select('filePath')
+      .exec();
+      
+    await Promise.all(templates.map(t => this.filesService.deleteYCFile(t.filePath)));
+    await this.templateModel.deleteMany({ storageType: 'user', userId });
+  }
+
   async createFromFile(file: Express.Multer.File, isSystem: boolean, user: any): Promise<Template> {
     if (!file || !file.buffer) {
       throw ApiError.BadRequest('Файл не был загружен');

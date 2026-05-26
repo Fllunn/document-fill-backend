@@ -33,5 +33,6 @@ import { UserService } from 'src/user/user.service';
   ],
   controllers: [TemplatesController],
   providers: [TemplatesService, AuthGuard],
+  exports: [TemplatesService],
 })
 export class TemplatesModule {}
