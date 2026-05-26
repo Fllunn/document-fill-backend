@@ -10,13 +10,19 @@ import { AuthMethod } from 'src/types/auth-method.type'
 import { MongoServerError } from 'mongodb'
 import { isValidObjectId } from 'mongoose'
 import { UpdateUserDto } from './dto/update-user.dto'
+import { Template } from 'src/templates/schemas/templates.schema'
+import { Photo } from 'src/photos/schemas/photos.schema'
+import { FilesService } from 'src/files/files.service'
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectModel('User') private UserModel: Model<UserClass>,
+    @InjectModel(Template.name) private templateModel: Model<Template>,
+    @InjectModel(Photo.name) private photoModel: Model<Photo>,
     private TokenService: TokenService,
     private RolesService: RolesService,
+    private filesService: FilesService,
   ) { }
 
   private async getUserOrThrow(userId: string): Promise<UserDocument> {
@@ -274,6 +280,14 @@ export class AuthService {
     if (!isPasswordEqualsUser)
       throw ApiError.BadRequest('Неверный пароль')
 
+    const templates = await this.templateModel.find({ storageType: 'user', userId }).select('filePath').exec()
+    await Promise.all(templates.map(t => this.filesService.deleteYCFile(t.filePath)))
+    await this.templateModel.deleteMany({ storageType: 'user', userId })
+
+    const photos = await this.photoModel.find({ userId }).select('filePath').exec()
+    await Promise.all(photos.map(p => this.filesService.deleteYCFile(p.filePath)))
+    await this.photoModel.deleteMany({ userId })
+
     await this.UserModel.findByIdAndDelete(userId)
 
     try {
@@ -281,7 +295,6 @@ export class AuthService {
     } catch {
       // игнорирумем ошибку при удалении токена, так как аккаунт мы уже удалили
     }
-    
 
     return { message: 'Пользователь успешно удален' }
   }
