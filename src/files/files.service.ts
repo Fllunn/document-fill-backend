@@ -9,7 +9,8 @@ import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
 import JSZip from 'jszip';
-import { ALLOWED_IMAGE_FORMATS, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE, TEMPLATE_XML_MAX_UNCOMPRESSED } from 'src/constants/app.constants';
+import sizeOf from 'image-size';
+import { ALLOWED_IMAGE_FORMATS, IMAGE_MAX_SIDE_PX, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE, TEMPLATE_XML_MAX_UNCOMPRESSED } from 'src/constants/app.constants';
 
 const {
   TemplateHandler,
@@ -273,13 +274,14 @@ export class FilesService {
   private transformImageValues(
     values: Record<string, any>,
     state = { totalSize: 0 },
+    singleMaxSize = IMAGE_SINGLE_MAX_SIZE,
   ): Record<string, any> {
     const result: Record<string, any> = {};
 
     for (const [key, value] of Object.entries(values)) {
       if (Array.isArray(value)) {
         result[key] = value.map((item) =>
-          item && typeof item === 'object' ? this.transformImageValues(item, state) : item,
+          item && typeof item === 'object' ? this.transformImageValues(item, state, singleMaxSize) : item,
         );
       } else if (value && typeof value === 'object' && value._type === 'image') {
         if (!ALLOWED_IMAGE_FORMATS.includes(value.format)) {
@@ -289,9 +291,9 @@ export class FilesService {
         }
         const sizeBytes = Math.floor(value.source.length * 0.75);
 
-        if (sizeBytes > IMAGE_SINGLE_MAX_SIZE) {
+        if (sizeBytes > singleMaxSize) {
           throw ApiError.BadRequest(
-            `Размер изображения "${key}" превышает ${IMAGE_SINGLE_MAX_SIZE / 1024} КБ`,
+            `Размер изображения "${key}" превышает ${singleMaxSize / 1024} КБ`,
           );
         }
 
@@ -303,13 +305,34 @@ export class FilesService {
           );
         }
 
-        result[key] = { ...value, source: Buffer.from(value.source, 'base64') };
+        const sourceBuffer = Buffer.from(value.source, 'base64');
+        const dims = this.calcImageDimensions(sourceBuffer);
+        result[key] = { ...value, source: sourceBuffer, ...dims };
       } else {
         result[key] = value;
       }
     }
-    
+
     return result;
+  }
+
+  private calcImageDimensions(buffer: Buffer): { width: number; height: number } {
+    try {
+      const info = sizeOf(buffer);
+      const origW = info.width ?? IMAGE_MAX_SIDE_PX;
+      const origH = info.height ?? IMAGE_MAX_SIDE_PX;
+      const maxSide = Math.max(origW, origH);
+      if (maxSide <= IMAGE_MAX_SIDE_PX) {
+        return { width: origW, height: origH };
+      }
+      const scale = IMAGE_MAX_SIDE_PX / maxSide;
+      return {
+        width: Math.round(origW * scale),
+        height: Math.round(origH * scale),
+      };
+    } catch {
+      return { width: IMAGE_MAX_SIDE_PX, height: IMAGE_MAX_SIDE_PX };
+    }
   }
 
   async extractTemplateTextLength(buffer: Buffer): Promise<number> {
@@ -327,8 +350,8 @@ export class FilesService {
     return xml.replace(/<[^>]+>/g, '').length;
   }
 
-  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
-    const transformed = this.transformImageValues(values);
+  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>, imageMaxSize?: number): Promise<Buffer> {
+    const transformed = this.transformImageValues(values, undefined, imageMaxSize);
     const result = await this.templateHandler.process(templateBuffer, transformed);
     return Buffer.from(result);
   }

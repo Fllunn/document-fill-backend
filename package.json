@@ -39,6 +39,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
     "easy-template-x": "^7.0.3",
+    "image-size": "^2.0.2",
     "ioredis": "^5.10.1",
     "jszip": "^3.10.1",
     "mongoose": "^9.1.1",

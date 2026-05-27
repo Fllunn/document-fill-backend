@@ -10,7 +10,7 @@ import { FilesService } from 'src/files/files.service';
 import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
-import { SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
+import { IMAGE_ADMIN_SINGLE_MAX_SIZE, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -33,15 +33,15 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     await this.converter.destroy();
   }
 
-  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
     }
 
     const templateBuffer = await this.filesService.getTemplateBuffer(template.filePath);
-    const processedValues = this.stripArraySuffix(format === 'pdf' ? values : this.stripImageValues(values));
-    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
+    const processedValues = this.stripArraySuffix(format === 'docx' ? this.stripSvgFromValues(values) : values);
+    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues, isAdmin ? IMAGE_ADMIN_SINGLE_MAX_SIZE : undefined);
 
     const docName = (name ?? 'document').slice(0, 150);
     const compressedTemplate = await gzip(templateBuffer);
@@ -73,13 +73,13 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     return { values: this.addArraySuffix(meta.values), rawValues: meta.rawValues ? this.addArraySuffix(meta.rawValues) : null, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>): Promise<{ buffer: Buffer; name: string }> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
-    const templateBuffer = await gunzip(Buffer.from(meta.templateBase64, 'base64'));
-    const processedValues = this.stripArraySuffix(format === 'pdf' ? values : this.stripImageValues(values));
-    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues);
+    const templateBuffer = await gunzip(Buffer.from(meta.templateBase64, 'base64')) as Buffer;
+    const processedValues = this.stripArraySuffix(format === 'docx' ? this.stripSvgFromValues(values) : values);
+    const filledBuffer = await this.filesService.fillTemplateFromBuffer(templateBuffer, processedValues, isAdmin ? IMAGE_ADMIN_SINGLE_MAX_SIZE : undefined);
 
     const docName = (name ?? meta.name ?? 'document').slice(0, 150);
     const newMeta: IDocumentMeta = { templateBase64: meta.templateBase64, values: this.stripImageValues(values), name: docName, ...(rawValues && { rawValues }) };
@@ -169,6 +169,22 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  }
+
+  private stripSvgFromValues(values: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (Array.isArray(value)) {
+        result[key] = value.map(item =>
+          item && typeof item === 'object' ? this.stripSvgFromValues(item) : item,
+        );
+      } else if (value && typeof value === 'object' && value._type === 'image' && value.format === 'image/svg+xml') {
+        //
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
 
   private stripArraySuffix(values: Record<string, any>): Record<string, any> {
