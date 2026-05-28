@@ -8,7 +8,10 @@ export const TEMPLATE_MAX_SIZE = 512 * 1024;
 export const DOCUMENT_MAX_SIZE = 1.5 * 1024 * 1024;
 export const GENERATED_DOCUMENT_MAX_SIZE = 1 * 1024 * 1024;
 export const IMAGE_SINGLE_MAX_SIZE = 256 * 1024;
+export const IMAGE_ADMIN_SINGLE_MAX_SIZE = 10 * 1024 * 1024;
 export const IMAGE_TOTAL_MAX_SIZE = 1024 * 1024;
+export const IMAGE_MAX_SIDE_CM = 5;
+export const IMAGE_MAX_SIDE_PX = Math.round(IMAGE_MAX_SIDE_CM / 2.54 * 96); // 189 px
 export const ALLOWED_IMAGE_FORMATS = ['image/png', 'image/jpeg', 'image/svg+xml'];
 
 export const TEMPLATE_FIELDS_LIMIT = 200;

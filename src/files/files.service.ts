@@ -9,7 +9,8 @@ import { Types } from 'mongoose';
 import { Express } from 'express';
 import YaCloud from 'src/s3/bucket';
 import JSZip from 'jszip';
-import { ALLOWED_IMAGE_FORMATS, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE, TEMPLATE_XML_MAX_UNCOMPRESSED } from 'src/constants/app.constants';
+import sizeOf from 'image-size';
+import { ALLOWED_IMAGE_FORMATS, IMAGE_MAX_SIDE_PX, IMAGE_SINGLE_MAX_SIZE, IMAGE_TOTAL_MAX_SIZE, TEMPLATE_XML_MAX_UNCOMPRESSED } from 'src/constants/app.constants';
 
 const {
   TemplateHandler,
@@ -273,13 +274,14 @@ export class FilesService {
   private transformImageValues(
     values: Record<string, any>,
     state = { totalSize: 0 },
+    singleMaxSize = IMAGE_SINGLE_MAX_SIZE,
   ): Record<string, any> {
     const result: Record<string, any> = {};
 
     for (const [key, value] of Object.entries(values)) {
       if (Array.isArray(value)) {
         result[key] = value.map((item) =>
-          item && typeof item === 'object' ? this.transformImageValues(item, state) : item,
+          item && typeof item === 'object' ? this.transformImageValues(item, state, singleMaxSize) : item,
         );
       } else if (value && typeof value === 'object' && value._type === 'image') {
         if (!ALLOWED_IMAGE_FORMATS.includes(value.format)) {
@@ -289,9 +291,9 @@ export class FilesService {
         }
         const sizeBytes = Math.floor(value.source.length * 0.75);
 
-        if (sizeBytes > IMAGE_SINGLE_MAX_SIZE) {
+        if (sizeBytes > singleMaxSize) {
           throw ApiError.BadRequest(
-            `Размер изображения "${key}" превышает ${IMAGE_SINGLE_MAX_SIZE / 1024} КБ`,
+            `Размер изображения "${key}" превышает ${singleMaxSize / 1024} КБ`,
           );
         }
 
@@ -303,13 +305,34 @@ export class FilesService {
           );
         }
 
-        result[key] = { ...value, source: Buffer.from(value.source, 'base64') };
+        const sourceBuffer = Buffer.from(value.source, 'base64');
+        const dims = this.calcImageDimensions(sourceBuffer);
+        result[key] = { ...value, source: sourceBuffer, ...dims };
       } else {
         result[key] = value;
       }
     }
-    
+
     return result;
+  }
+
+  private calcImageDimensions(buffer: Buffer): { width: number; height: number } {
+    try {
+      const info = sizeOf(buffer);
+      const origW = info.width ?? IMAGE_MAX_SIDE_PX;
+      const origH = info.height ?? IMAGE_MAX_SIDE_PX;
+      const maxSide = Math.max(origW, origH);
+      if (maxSide <= IMAGE_MAX_SIDE_PX) {
+        return { width: origW, height: origH };
+      }
+      const scale = IMAGE_MAX_SIDE_PX / maxSide;
+      return {
+        width: Math.round(origW * scale),
+        height: Math.round(origH * scale),
+      };
+    } catch {
+      return { width: IMAGE_MAX_SIDE_PX, height: IMAGE_MAX_SIDE_PX };
+    }
   }
 
   async extractTemplateTextLength(buffer: Buffer): Promise<number> {
@@ -327,8 +350,8 @@ export class FilesService {
     return xml.replace(/<[^>]+>/g, '').length;
   }
 
-  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>): Promise<Buffer> {
-    const transformed = this.transformImageValues(values);
+  async fillTemplateFromBuffer(templateBuffer: Buffer, values: Record<string, any>, imageMaxSize?: number): Promise<Buffer> {
+    const transformed = this.transformImageValues(values, undefined, imageMaxSize);
     const result = await this.templateHandler.process(templateBuffer, transformed);
     return Buffer.from(result);
   }
@@ -336,5 +359,119 @@ export class FilesService {
   async fillTemplate(filePath: string, values: Record<string, any>): Promise<Buffer> {
     const fileBuffer = await this.getTemplateBuffer(filePath);
     return this.fillTemplateFromBuffer(fileBuffer, values);
+  }
+
+  // нужно для добавления поддержки svg
+  private static readonly TRANSPARENT_1X1_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAABjE+ibYAAAAASUVORK5CYII=',
+    'base64',
+  );
+
+  async addSvgOoxmlExtension(buffer: Buffer): Promise<Buffer> {
+    const zip = await JSZip.loadAsync(buffer);
+
+    const relsFile = zip.file('word/_rels/document.xml.rels');
+    if (!relsFile) return buffer;
+    let relsXml = await relsFile.async('string');
+
+    // собираем rId для SVG
+    const svgRids: string[] = [];
+    const relPat = /<Relationship[^>]+Id="([^"]+)"[^>]+Target="[^"]*\.svg"[^>]*\/?>/g;
+    let m: RegExpExecArray | null;
+    while ((m = relPat.exec(relsXml)) !== null) svgRids.push(m[1]);
+    if (svgRids.length === 0) return buffer;
+
+    // следующий rId
+    const ridNums = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(x => parseInt(x[1]));
+    let nextRid = ridNums.length ? Math.max(...ridNums) + 1 : 1;
+
+    // следующий номер media
+    const mediaNums: number[] = [];
+    zip.forEach(p => { const mm = p.match(/word\/media\/\D*(\d+)\./); if (mm) mediaNums.push(parseInt(mm[1])); });
+    let nextMedia = mediaNums.length ? Math.max(...mediaNums) + 1 : 1;
+
+    const toPngRid: Record<string, string> = {};
+    for (const svgRid of svgRids) {
+      const pngRid = `rId${nextRid++}`;
+      const pngName = `image${nextMedia++}.png`;
+      zip.file(`word/media/${pngName}`, FilesService.TRANSPARENT_1X1_PNG);
+      relsXml = relsXml.replace(
+        '</Relationships>',
+        `<Relationship Id="${pngRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${pngName}"/></Relationships>`,
+      );
+      toPngRid[svgRid] = pngRid;
+    }
+    zip.file('word/_rels/document.xml.rels', relsXml);
+
+    const ctFile = zip.file('[Content_Types].xml');
+    if (ctFile) {
+      let ctXml = await ctFile.async('string');
+      if (!ctXml.includes('Extension="png"') && !ctXml.includes('image/png')) {
+        ctXml = ctXml.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>');
+        zip.file('[Content_Types].xml', ctXml);
+      }
+    }
+
+    const docFile = zip.file('word/document.xml');
+    if (!docFile) return buffer;
+    let docXml = await docFile.async('string');
+
+    // удаляю любой xmlns:asvg который ранее добавил в w:document, теперь будет inline
+    docXml = docXml.replace(/ xmlns:asvg="http:\/\/schemas\.microsoft\.com\/office\/drawing\/2016\/SVG\/main"/, '');
+
+    for (const [svgRid, pngRid] of Object.entries(toPngRid)) {
+      const esvg = svgRid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // меняем a:blip r:embed с SVG на PNG, применяется только к <a:blip, не к <pic:pic
+      docXml = docXml.replace(
+        new RegExp(`(<a:blip\\b[^>]*)r:embed="${esvg}"`, 'g'),
+        `$1r:embed="${pngRid}"`,
+      );
+
+      const epng = pngRid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // удаление <a:clrChange> из blip SVG-изображения
+      // в шаблоне есть PNG фотка с прозрачностью (clrChange: цвет #1B1B1B на alpha 0)
+      // чтобы не было видно. easy-template-x сохраняет этот эффект при замене картинки.
+      // libreoffice не может применить цветовой фильтр к SVG без растеризации
+      // поэтому SVG конвертируется в PNG низкого качества. удаление clrChange решает проблему
+      docXml = docXml.replace(
+        new RegExp(`(<a:blip\\b[^>]*r:embed="${epng}"[^>]*>)([\\s\\S]*?)(</a:blip>)`, 'g'),
+        (_, open, content, close) => open + content.replace(/<a:clrChange>[\s\S]*?<\/a:clrChange>/g, '') + close,
+      );
+
+      const svgExt = `<a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}"><asvg:svgBlip xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main" r:embed="${svgRid}"/></a:ext>`;
+
+      // blip (с pngRid) уже имеет <a:extLst>
+      const withExtLst = new RegExp(
+        `(<a:blip\\b[^>]*r:embed="${epng}"[^>]*>[\\s\\S]*?)(</a:extLst>\\s*</a:blip>)`,
+        'g',
+      );
+      if (withExtLst.test(docXml)) {
+        withExtLst.lastIndex = 0;
+        docXml = docXml.replace(withExtLst, `$1${svgExt}$2`);
+        continue;
+      }
+
+      // открытый blip без extLst
+      const withoutExtLst = new RegExp(
+        `(<a:blip\\b[^>]*r:embed="${epng}"[^>]*>[\\s\\S]*?)(</a:blip>)`,
+        'g',
+      );
+      if (withoutExtLst.test(docXml)) {
+        withoutExtLst.lastIndex = 0;
+        docXml = docXml.replace(withoutExtLst, `$1<a:extLst>${svgExt}</a:extLst>$2`);
+        continue;
+      }
+
+      // самозакрывающийся blip
+      docXml = docXml.replace(
+        new RegExp(`(<a:blip\\b[^>]*r:embed="${epng}"[^>]*)\\/>`, 'g'),
+        `$1><a:extLst>${svgExt}</a:extLst></a:blip>`,
+      );
+    }
+
+    zip.file('word/document.xml', docXml);
+    return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   }
 }
