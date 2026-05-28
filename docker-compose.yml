@@ -9,6 +9,8 @@ services:
       depends_on:
         - db
         - redis
+      volumes:
+        - system_templates:/app/storage/templates/system
       networks:
         - backend
 
@@ -42,6 +44,7 @@ services:
 volumes:
   mongo_data:
   redis_data:
+  system_templates:
 
 networks:
   backend: {}
