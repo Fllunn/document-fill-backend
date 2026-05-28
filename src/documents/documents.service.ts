@@ -50,8 +50,12 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     if (maxSize && filledBuffer.length > maxSize)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
 
+    const pdfReadyBuffer = format === 'pdf'
+      ? await this.filesService.addSvgOoxmlExtension(filledBuffer)
+      : filledBuffer;
+
     const buffer = format === 'pdf'
-      ? await this.convertToPdf(filledBuffer, pdfTimeout)
+      ? await this.convertToPdf(pdfReadyBuffer, pdfTimeout)
       : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(meta)));
 
     if (namePattern && template.storageType === 'user') {
@@ -87,8 +91,12 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     if (maxSize && filledBuffer.length > maxSize)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
 
+    const pdfReadyBuffer = format === 'pdf'
+      ? await this.filesService.addSvgOoxmlExtension(filledBuffer)
+      : filledBuffer;
+
     const buffer = format === 'pdf'
-      ? await this.convertToPdf(filledBuffer, pdfTimeout)
+      ? await this.convertToPdf(pdfReadyBuffer, pdfTimeout)
       : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
 
     return { buffer, name: docName };
