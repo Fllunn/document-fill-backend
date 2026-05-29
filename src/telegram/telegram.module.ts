@@ -6,16 +6,21 @@ import { TelegramController } from './telegram.controller';
 import UserModel from 'src/user/models/user.model';
 import { AuthModule } from 'src/auth/auth.module';
 
+const hasBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
+
 @Module({
   imports: [
-    TelegrafModule.forRoot({
-      token: process.env.TELEGRAM_BOT_TOKEN!,
-    }),
+    ...(hasBotToken
+      ? [TelegrafModule.forRoot({ token: process.env.TELEGRAM_BOT_TOKEN! })]
+      : []),
     UserModel,
     AuthModule,
   ],
   controllers: [TelegramController],
-  providers: [TelegramService, TelegramUpdate],
+  providers: [
+    TelegramService,
+    ...(hasBotToken ? [TelegramUpdate] : []),
+  ],
   exports: [TelegramService],
 })
 export class TelegramModule {}

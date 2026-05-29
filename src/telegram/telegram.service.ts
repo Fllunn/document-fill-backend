@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import ApiError from 'src/exceptions/errors/api-error';
 import { InjectBot } from 'nestjs-telegraf';
 import { InjectModel } from '@nestjs/mongoose';
@@ -21,9 +21,13 @@ export class TelegramService {
   private sendQueue: Promise<void> = Promise.resolve();
 
   constructor(
-    @InjectBot() private readonly bot: Telegraf,
+    @Optional() @InjectBot() private readonly bot: Telegraf | null,
     @InjectModel('User') private readonly userModel: Model<UserClass>,
   ) {}
+
+  get isBotAvailable(): boolean {
+    return !!this.bot;
+  }
 
   async generateLinkCode(userId: string): Promise<string> {
     const code = randomBytes(9).toString('base64url').slice(0, 12);
@@ -58,18 +62,20 @@ export class TelegramService {
     const user = await this.userModel.findById(userId).select('telegramChatId').lean();
     if (!user) throw ApiError.NotFound('Пользователь не найден');
     if (!user.telegramChatId) throw ApiError.BadRequest('Telegram не привязан');
-    try {
-      await this.bot.telegram.sendMessage(user.telegramChatId, 'Telegram успешно отвязан');
-    } catch {
+    if (this.bot) {
+      try {
+        await this.bot.telegram.sendMessage(user.telegramChatId, 'Telegram успешно отвязан');
+      } catch {
+      }
     }
     await this.userModel.findByIdAndUpdate(userId, { $unset: { telegramChatId: '' } });
   }
 
   async sendDocument(buffer: Buffer, filename: string, chatId: string): Promise<void> {
-    if (!chatId) return;
+    if (!chatId || !this.bot) return;
     this.sendQueue = this.sendQueue.then(async () => {
       try {
-        await this.bot.telegram.sendDocument(chatId, { source: buffer, filename });
+        await this.bot!.telegram.sendDocument(chatId, { source: buffer, filename });
       } catch {
       }
     });

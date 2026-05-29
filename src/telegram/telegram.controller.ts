@@ -19,6 +19,7 @@ export class TelegramController {
     description: 'Генерирует одноразовый код для привязки Telegram. Только для администраторов',
   })
   async getLinkCode(@Req() req: any): Promise<{ code: string; expiresIn: number }> {
+    if (!this.telegramService.isBotAvailable) throw ApiError.BadRequest('Telegram бот не настроен');
     if (!req.user.roles.includes('admin')) {
       throw ApiError.AccessDenied();
     }
@@ -31,6 +32,7 @@ export class TelegramController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Статус привязки Telegram' })
   async getStatus(@Req() req: any): Promise<{ linked: boolean }> {
+    if (!this.telegramService.isBotAvailable) throw ApiError.BadRequest('Telegram бот не настроен');
     if (!req.user.roles.includes('admin')) {
       throw ApiError.AccessDenied();
     }
@@ -43,6 +45,7 @@ export class TelegramController {
   @ApiOperation({ summary: 'Отвязать Telegram', description: 'Только для администраторов' })
   @ApiResponse({ status: 200 })
   async unlink(@Req() req: any): Promise<void> {
+    if (!this.telegramService.isBotAvailable) throw ApiError.BadRequest('Telegram бот не настроен');
     if (!req.user.roles.includes('admin')) {
       throw ApiError.AccessDenied();
     }

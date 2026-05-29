@@ -1,5 +1,5 @@
 import { Model } from 'mongoose';
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import JSZip from 'jszip';
 import * as zlib from 'zlib';
@@ -26,7 +26,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     @InjectModel('User') private userModel: Model<UserClass>,
     private filesService: FilesService,
     private cryptoService: CryptoService,
-    private telegramService: TelegramService,
+    @Optional() private telegramService: TelegramService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -72,7 +72,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (isAdmin && userId) {
+    if (isAdmin && userId && this.telegramService) {
       const user = await this.userModel.findById(userId).select('telegramChatId').lean().exec();
       if (user?.telegramChatId) {
         void this.telegramService.sendDocument(buffer, `${docName}.${format}`, user.telegramChatId);
@@ -110,7 +110,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
       ? await this.convertToPdf(pdfReadyBuffer, pdfTimeout)
       : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
 
-    if (isAdmin && userId) {
+    if (isAdmin && userId && this.telegramService) {
       const user = await this.userModel.findById(userId).select('telegramChatId').lean().exec();
       if (user?.telegramChatId) {
         void this.telegramService.sendDocument(buffer, `${docName}.${format}`, user.telegramChatId);
