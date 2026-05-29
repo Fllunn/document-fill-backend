@@ -46,6 +46,12 @@ export class UserClass {
     required: true,
   })
   authMethods!: string[];
+
+  @Prop({
+    type: String,
+    required: false,
+  })
+  telegramChatId?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserClass);

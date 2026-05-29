@@ -11,6 +11,8 @@ import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
 import { IMAGE_ADMIN_SINGLE_MAX_SIZE, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
+import { TelegramService } from 'src/telegram/telegram.service';
+import { UserClass } from 'src/user/schemas/user.schema';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -21,8 +23,10 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @InjectModel(Template.name) private templateModel: Model<Template>,
+    @InjectModel('User') private userModel: Model<UserClass>,
     private filesService: FilesService,
     private cryptoService: CryptoService,
+    private telegramService: TelegramService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -33,7 +37,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     await this.converter.destroy();
   }
 
-  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean): Promise<{ buffer: Buffer; name: string }> {
+  async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean, userId?: string): Promise<{ buffer: Buffer; name: string }> {
     const template = await this.templateModel.findById(templateId).lean().exec();
     if (!template) {
       throw ApiError.NotFound('Шаблон не найден');
@@ -68,6 +72,13 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    if (isAdmin && userId) {
+      const user = await this.userModel.findById(userId).select('telegramChatId').lean().exec();
+      if (user?.telegramChatId) {
+        void this.telegramService.sendDocument(buffer, `${docName}.${format}`, user.telegramChatId);
+      }
+    }
+
     return { buffer, name: docName };
   }
 
@@ -77,7 +88,7 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     return { values: this.addArraySuffix(meta.values), rawValues: meta.rawValues ? this.addArraySuffix(meta.rawValues) : null, name: meta.name };
   }
 
-  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean): Promise<{ buffer: Buffer; name: string }> {
+  async update(fileBuffer: Buffer, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean, userId?: string): Promise<{ buffer: Buffer; name: string }> {
     const encryptedMeta = await this.readMeta(fileBuffer);
     const meta: IDocumentMeta = JSON.parse(this.cryptoService.decrypt(encryptedMeta));
 
@@ -98,6 +109,13 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     const buffer = format === 'pdf'
       ? await this.convertToPdf(pdfReadyBuffer, pdfTimeout)
       : await this.embedMeta(filledBuffer, this.cryptoService.encrypt(JSON.stringify(newMeta)));
+
+    if (isAdmin && userId) {
+      const user = await this.userModel.findById(userId).select('telegramChatId').lean().exec();
+      if (user?.telegramChatId) {
+        void this.telegramService.sendDocument(buffer, `${docName}.${format}`, user.telegramChatId);
+      }
+    }
 
     return { buffer, name: docName };
   }
