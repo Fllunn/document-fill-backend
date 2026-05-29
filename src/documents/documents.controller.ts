@@ -113,7 +113,7 @@ export class DocumentsController {
         namePattern: {
           type: 'string',
           example: 'Договор {Компания}',
-          description: 'Паттерн названия с переменными для сохранения, только для пользовательских шаблонов',
+          description: 'Название с переменными для сохранения, только для пользовательских шаблонов',
         },
         values: {
           type: 'object',

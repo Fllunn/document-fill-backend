@@ -177,8 +177,8 @@ export class TemplatesController {
   @Delete(':id/names')
   @UseGuards(AuthGuard)
   @ApiOperation({
-    summary: 'Удаление сохраненного паттерна названия',
-    description: 'Удаляет паттерн из списка сохраненных названий пользовательского шаблона',
+    summary: 'Удаление сохраненного названия',
+    description: 'Удаляет название из списка сохраненных названий пользовательского шаблона',
   })
   @ApiParam({ name: 'id', type: 'string', required: true, description: 'ID шаблона' })
   @ApiBody({
