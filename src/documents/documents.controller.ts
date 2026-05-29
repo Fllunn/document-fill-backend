@@ -143,7 +143,7 @@ export class DocumentsController {
       throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
     const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
     const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
-    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout, dto.rawValues, isAdmin);
+    const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout, dto.rawValues, isAdmin, req.user._id?.toString());
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
     return new StreamableFile(buffer, {
@@ -289,7 +289,7 @@ export class DocumentsController {
       throw ApiError.BadRequest('Слишком много данных для генерации документа. Пожалуйста, попробуйте уменьшить длину текстовых значений или количество изображений');
     const maxSize = isAdmin ? undefined : GENERATED_DOCUMENT_MAX_SIZE;
     const pdfTimeout = isAdmin ? undefined : PDF_CONVERSION_TIMEOUT_MS;
-    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format, maxSize, pdfTimeout, rawValues, isAdmin);
+    const { buffer, name: docName } = await this.documentsService.update(file.buffer, values, name, format, maxSize, pdfTimeout, rawValues, isAdmin, req.user._id?.toString());
 
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ. Пожалуйста, попробуйте уменьшить количество или размер изображений в документе');

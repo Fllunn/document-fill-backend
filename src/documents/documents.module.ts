@@ -7,6 +7,7 @@ import { Template, TemplateSchema } from 'src/templates/schemas/templates.schema
 import { TokenModule } from 'src/token/token.module';
 import { FilesModule } from 'src/files/files.module';
 import UserModel from 'src/user/models/user.model';
+import { TelegramModule } from 'src/telegram/telegram.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import UserModel from 'src/user/models/user.model';
     TokenModule,
     FilesModule,
     UserModel,
+    TelegramModule,
   ],
   controllers: [DocumentsController],
   providers: [DocumentsService, CryptoService],
