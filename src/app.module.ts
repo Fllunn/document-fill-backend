@@ -10,7 +10,8 @@ import { TokenModule } from './token/token.module';
 import { UserModule } from './user/user.module';
 import { RolesModule } from './roles/roles.module';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AppThrottlerGuard } from './common/guards/throttler.guard';
 import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { TemplatesModule } from './templates/templates.module';
@@ -47,7 +48,7 @@ import { PhotosModule } from './photos/photos.module';
     // Global rate limiting guard
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: AppThrottlerGuard,
     },
   ],
 })
