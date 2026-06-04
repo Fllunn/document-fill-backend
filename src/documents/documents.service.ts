@@ -244,7 +244,12 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async readMeta(docxBuffer: Buffer): Promise<string> {
-    const zip = await JSZip.loadAsync(docxBuffer);
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(docxBuffer);
+    } catch {
+      throw ApiError.BadRequest('Данный файл поврежден или не является файлом .docx');
+    }
     const customPropsFile = zip.file('docProps/custom.xml');
 
     if (!customPropsFile) {
