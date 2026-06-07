@@ -1,8 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  OnModuleDestroy,
+  Param,
   Post,
   Query,
   Req,
@@ -11,6 +15,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import {
@@ -85,8 +90,27 @@ function validateValues(values: Record<string, any>, state = { tableCount: 0 }):
 @ApiBearerAuth()
 @ApiTags('Документы')
 @Controller('documents')
-export class DocumentsController {
-  constructor(private readonly documentsService: DocumentsService) {}
+export class DocumentsController implements OnModuleDestroy {
+  private readonly pendingDownloads = new Map<string, {
+    buffer: Buffer;
+    contentType: string;
+    disposition: string;
+    expiresAt: number;
+  }>();
+
+  private readonly cleanupInterval: NodeJS.Timeout;
+
+  constructor(private readonly documentsService: DocumentsService) {
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [token, entry] of this.pendingDownloads)
+        if (entry.expiresAt < now) this.pendingDownloads.delete(token);
+    }, 60_000);
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.cleanupInterval);
+  }
 
   @Post()
   @UseGuards(AuthGuard)
@@ -126,13 +150,14 @@ export class DocumentsController {
   @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
-    description: 'Готовый документ .docx',
+    description: 'Токен для скачивания документа',
+    schema: { type: 'object', properties: { downloadToken: { type: 'string' } } },
   })
   async create(
     @Req() req: any,
     @Body() dto: CreateDocumentDto,
     @Query() { format = DocumentFormat.DOCX }: DocumentFormatDto,
-  ): Promise<StreamableFile> {
+  ): Promise<{ downloadToken: string }> {
     const isAdmin = req.user.roles.includes('admin');
     if (!isAdmin && hasSvg(dto.values))
       throw ApiError.BadRequest('Доступны только форматы PNG и JPG');
@@ -146,9 +171,30 @@ export class DocumentsController {
     const { buffer, name } = await this.documentsService.create(dto.templateId, dto.values, dto.name, format, dto.namePattern, maxSize, pdfTimeout, dto.rawValues, isAdmin, req.user._id?.toString());
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ');
-    return new StreamableFile(buffer, {
-      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+    const token = randomUUID();
+    this.pendingDownloads.set(token, {
+      buffer,
+      contentType: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
+      expiresAt: Date.now() + 2 * 60 * 1000,
+    });
+    return { downloadToken: token };
+  }
+
+  @Get('download/:token')
+  @ApiOperation({ summary: 'Скачать документ по токену' })
+  @ApiResponse({ status: 200, description: 'Файл документа' })
+  @ApiResponse({ status: 404, description: 'Токен недействителен или истек' })
+  download(@Param('token') token: string): StreamableFile {
+    const entry = this.pendingDownloads.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      this.pendingDownloads.delete(token);
+      throw new NotFoundException('Ссылка недействительна или истекла');
+    }
+    this.pendingDownloads.delete(token);
+    return new StreamableFile(entry.buffer, {
+      type: entry.contentType,
+      disposition: entry.disposition,
     });
   }
 
@@ -250,7 +296,8 @@ export class DocumentsController {
   @ApiQuery({ name: 'format', enum: DocumentFormat, required: false })
   @ApiResponse({
     status: 200,
-    description: 'Новый .docx документ',
+    description: 'Токен для скачивания обновленного документа',
+    schema: { type: 'object', properties: { downloadToken: { type: 'string' } } },
   })
   async update(
     @Req() req: any,
@@ -259,7 +306,7 @@ export class DocumentsController {
     @Body('values') valuesRaw: string,
     @Body('name') name?: string,
     @Body('rawValues') rawValuesRaw?: string,
-  ): Promise<StreamableFile> {
+  ): Promise<{ downloadToken: string }> {
     const isAdmin = req.user.roles.includes('admin');
     if (!isAdmin && file.size > DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Файл слишком большой');
@@ -270,7 +317,7 @@ export class DocumentsController {
       throw ApiError.BadRequest('Некорректный формат данных');
     }
     let rawValues: Record<string, any> | undefined;
-    
+
     if (rawValuesRaw) {
       try {
         rawValues = JSON.parse(rawValuesRaw);
@@ -293,9 +340,13 @@ export class DocumentsController {
 
     if (!isAdmin && buffer.length > GENERATED_DOCUMENT_MAX_SIZE)
       throw ApiError.BadRequest('Сгенерированный документ превышает допустимый размер 1 МБ. Пожалуйста, попробуйте уменьшить количество или размер изображений в документе');
-    return new StreamableFile(buffer, {
-      type: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
+    const token = randomUUID();
+    this.pendingDownloads.set(token, {
+      buffer,
+      contentType: format === DocumentFormat.PDF ? 'application/pdf' : DOCX_MIME,
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(docName)}.${format}`,
+      expiresAt: Date.now() + 2 * 60 * 1000,
     });
+    return { downloadToken: token };
   }
 }
