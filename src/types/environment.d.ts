@@ -13,11 +13,6 @@ declare global {
       MONGO_PORT: string
       MONGO_URL: string
 
-      REDIS_PASSWORD: string
-      REDIS_HOST: string
-      REDIS_PORT: string
-      REDIS_DB: string
-
       CLIENT_URL: string
       DOMAIN?: string
 
@@ -26,11 +21,11 @@ declare global {
       JWT_RESET_SECRET: string
       TOKEN_PEPPER: string
 
-      YC_SECRET: string
-      YC_KEY_ID: string
-      YC_BUCKET_NAME: string
+      STORAGE_DIR?: string
 
       DOCUMENT_ENCRYPTION_KEY: string
+
+      TELEGRAM_BOT_TOKEN?: string
     }
   }
 }

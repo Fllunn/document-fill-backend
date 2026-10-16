@@ -1,18 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import * as jwt from 'jsonwebtoken'
 import { User } from 'src/user/interfaces/user.interface';
-import Redis from 'ioredis';
 import { createHash } from 'crypto';
+import { ExpiringStoreService } from 'src/expiring-store/expiring-store.service';
 import { RESET_TOKEN_EXPIRES_IN, ACCESS_TOKEN_EXPIRES_IN, REFRESH_TOKEN_EXPIRES_IN, REFRESH_TOKEN_TTL_SECONDS } from './constants/token.constants';
 
 @Injectable()
 export class TokenService {
-	private readonly redis = new Redis({
-		host: process.env.REDIS_HOST,
-		port: Number(process.env.REDIS_PORT),
-		password: process.env.REDIS_PASSWORD || undefined,
-		db: Number(process.env.REDIS_DB ?? 0),
-	});
+	constructor(private readonly store: ExpiringStoreService) {}
 
   private getHashToken(token: string): string {
     return createHash('sha256').update(token + process.env.TOKEN_PEPPER).digest('hex')
@@ -79,21 +74,21 @@ export class TokenService {
 	async saveToken(refreshToken: string): Promise<void> {
     refreshToken = this.getHashToken(refreshToken)
 
-		await this.redis.set(`rt:${refreshToken}`, '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
+		await this.store.set(`rt:${refreshToken}`, '1', REFRESH_TOKEN_TTL_SECONDS)
 	}
 
   // удаление refresh токена
 	async removeToken(refreshToken: string): Promise<number> {
     refreshToken = this.getHashToken(refreshToken)
 
-		return await this.redis.del(`rt:${refreshToken}`)
+		return await this.store.del(`rt:${refreshToken}`)
 	}
 
   // проверяем, существует ли refresh токен
 	async findToken(refreshToken: string): Promise<string | null> {
     const refreshTokenHash = this.getHashToken(refreshToken)
 
-		const exists = await this.redis.exists(`rt:${refreshTokenHash}`)
+		const exists = await this.store.exists(`rt:${refreshTokenHash}`)
 		return exists ? refreshToken : null
 	}
 }

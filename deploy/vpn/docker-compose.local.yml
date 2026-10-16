@@ -1,0 +1,7 @@
+# Локальная проверка: собрать образы из исходников вместо ghcr.
+# docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+services:
+  frontend:
+    build: ../../../document-fill-frontend
+  backend:
+    build: ../..

@@ -61,7 +61,7 @@ export class PhotosService {
 
     const originalName = this.normalizeOriginalName(file.originalname);
     const fileName = this.filesService.generateFileName(originalName);
-    const filePath = await this.filesService.saveYCFilePhoto(file, fileName, user);
+    const filePath = await this.filesService.saveUserPhotoFile(file, fileName, user);
 
     const photo = await this.photoModel.create({
       userId: user._id,
@@ -116,7 +116,7 @@ export class PhotosService {
       throw ApiError.NotFound();
     }
 
-    await this.filesService.deleteYCFile(photo.filePath);
+    await this.filesService.deleteUserFile(photo.filePath);
     await this.photoModel.deleteOne({ _id: id, userId: user._id }).exec();
 
     return true;
@@ -128,7 +128,7 @@ export class PhotosService {
       .select('filePath')
       .exec();
       
-    await Promise.all(photos.map(p => this.filesService.deleteYCFile(p.filePath)));
+    await Promise.all(photos.map(p => this.filesService.deleteUserFile(p.filePath)));
     await this.photoModel.deleteMany({ userId });
   }
 

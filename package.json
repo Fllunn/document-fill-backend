@@ -20,9 +20,6 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1050.0",
-    "@aws-sdk/lib-storage": "^3.1050.0",
-    "@aws-sdk/s3-request-presigner": "^3.1050.0",
     "@matbee/libreoffice-converter": "^2.6.0",
     "@nestjs-modules/mailer": "^2.0.2",
     "@nestjs/common": "^11.0.1",
@@ -40,7 +37,6 @@
     "dotenv": "^17.2.3",
     "easy-template-x": "^7.0.3",
     "image-size": "^2.0.2",
-    "ioredis": "^5.10.1",
     "jszip": "^3.10.1",
     "mongoose": "^9.1.1",
     "mongoose-autopopulate": "^1.2.1",

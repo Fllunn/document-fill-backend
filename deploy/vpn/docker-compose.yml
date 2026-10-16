@@ -1,0 +1,89 @@
+# Проект на VPN-сервере: снаружи ничего не открыто.
+# Сайт доступен только через SSH-туннель на 127.0.0.1:3000.
+# Правила — test-vpn/context/decisions.md, «Пет-проект на VPN-сервере».
+name: docfill
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 256
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+
+services:
+  frontend:
+    <<: *hardening
+    image: ghcr.io/fllunn/document-fill-frontend:latest
+    environment:
+      NUXT_PUBLIC_API_BASE: /api
+      NUXT_API_PROXY_TARGET: http://backend:3033
+      NUXT_PUBLIC_SITE_URL: http://localhost:3000
+    ports:
+      - "127.0.0.1:3000:3000" # только loopback; 0.0.0.0 здесь недопустим
+    mem_limit: 256m
+    depends_on:
+      - backend
+    networks:
+      - app
+
+  backend:
+    <<: *hardening
+    image: ghcr.io/fllunn/document-fill-backend:latest
+    env_file: .env
+    environment:
+      PORT: "3033"
+      HTTPS: "false"
+      CLIENT_URL: http://localhost:3000
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
+    # без ports: доступен только frontend по внутренней сети
+    volumes:
+      - storage:/app/storage
+    mem_limit: 1g # пик — конвертация в PDF (LibreOffice WASM)
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - app # выход в интернет нужен Telegram-боту
+      - db
+
+  mongo:
+    <<: *hardening
+    image: mongo:8.0
+    command: ["--wiredTigerCacheSizeGB", "0.25"]
+    # entrypoint образа меняет владельца /data/db и переключается на пользователя mongodb
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB}
+    # без ports
+    volumes:
+      - mongo_data:/data/db
+    mem_limit: 400m
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - db
+
+networks:
+  app: {}
+  db:
+    internal: true # у Mongo нет выхода в интернет
+
+volumes:
+  mongo_data:
+  storage:

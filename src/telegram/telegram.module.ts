@@ -5,6 +5,7 @@ import { TelegramUpdate } from './telegram.update';
 import { TelegramController } from './telegram.controller';
 import UserModel from 'src/user/models/user.model';
 import { AuthModule } from 'src/auth/auth.module';
+import { ExpiringStoreModule } from 'src/expiring-store/expiring-store.module';
 
 const hasBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
 
@@ -15,6 +16,7 @@ const hasBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
       : []),
     UserModel,
     AuthModule,
+    ExpiringStoreModule,
   ],
   controllers: [TelegramController],
   providers: [
