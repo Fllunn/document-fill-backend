@@ -1,5 +1,5 @@
 import { Model } from 'mongoose';
-import { Injectable, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import JSZip from 'jszip';
 import * as zlib from 'zlib';
@@ -10,16 +10,22 @@ import { FilesService } from 'src/files/files.service';
 import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
-import { IMAGE_ADMIN_SINGLE_MAX_SIZE, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
+import { IMAGE_ADMIN_SINGLE_MAX_SIZE, PDF_CONVERTER_IDLE_MS, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
 import { TelegramService } from 'src/telegram/telegram.service';
 import { UserClass } from 'src/user/schemas/user.schema';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
+type PdfConverter = Awaited<ReturnType<typeof createWorkerConverter>>;
+
 @Injectable()
-export class DocumentsService implements OnModuleInit, OnModuleDestroy {
-  private converter: Awaited<ReturnType<typeof createWorkerConverter>>;
+export class DocumentsService implements OnModuleDestroy {
+  // LibreOffice (WASM) занимает ~800 МБ, поэтому грузится только при запросе pdf
+  // и выгружается после PDF_CONVERTER_IDLE_MS простоя
+  private converterPromise: Promise<PdfConverter> | null = null;
+  private activeConversions = 0;
+  private idleTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectModel(Template.name) private templateModel: Model<Template>,
@@ -29,12 +35,8 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     @Optional() private telegramService: TelegramService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    this.converter = await createWorkerConverter();
-  }
-
   async onModuleDestroy(): Promise<void> {
-    await this.converter.destroy();
+    await this.destroyConverter();
   }
 
   async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean, userId?: string): Promise<{ buffer: Buffer; name: string }> {
@@ -120,8 +122,57 @@ export class DocumentsService implements OnModuleInit, OnModuleDestroy {
     return { buffer, name: docName };
   }
 
+  private getConverter(): Promise<PdfConverter> {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    this.converterPromise ??= createWorkerConverter().catch((error) => {
+      this.converterPromise = null;
+      throw error;
+    });
+    return this.converterPromise;
+  }
+
+  private scheduleConverterUnload(): void {
+    if (this.activeConversions > 0) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => void this.destroyConverter(), PDF_CONVERTER_IDLE_MS);
+    this.idleTimer.unref();
+  }
+
+  private async destroyConverter(): Promise<void> {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    const converterPromise = this.converterPromise;
+    this.converterPromise = null;
+    if (!converterPromise) return;
+    try {
+      await (await converterPromise).destroy();
+    } catch {
+    }
+  }
+
   private async convertToPdf(docxBuffer: Buffer, timeoutMs?: number): Promise<Buffer> {
-    const convert = this.converter.convert(docxBuffer, { outputFormat: 'pdf' });
+    this.activeConversions++;
+    const releaseConverter = () => {
+      this.activeConversions--;
+      this.scheduleConverterUnload();
+    };
+
+    // таймаут считается после загрузки конвертера: холодный старт LibreOffice занимает несколько секунд
+    let converter: PdfConverter;
+    try {
+      converter = await this.getConverter();
+    } catch (error) {
+      releaseConverter();
+      throw error;
+    }
+
+    // конвертация считается завершённой, только когда она действительно закончилась (даже после таймаута)
+    const convert = converter.convert(docxBuffer, { outputFormat: 'pdf' }).finally(releaseConverter);
     if (!timeoutMs) {
       const result = await convert;
       return Buffer.from(result.data);

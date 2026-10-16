@@ -153,8 +153,8 @@ export class TemplatesService {
         await this.filesService.deleteSystemFile(template.filePath);
         template.filePath = this.filesService.saveSystemFile(newFile, this.filesService.generateFileName(newFile.originalname));
       } else {
-        await this.filesService.deleteYCFile(template.filePath);
-        template.filePath = await this.filesService.saveYCFileTemplate(newFile, this.filesService.generateFileName(newFile.originalname), user);
+        await this.filesService.deleteUserFile(template.filePath);
+        template.filePath = await this.filesService.saveUserTemplateFile(newFile, this.filesService.generateFileName(newFile.originalname), user);
       }
 
       template.variables = extractedVariables;
@@ -195,7 +195,7 @@ export class TemplatesService {
     if (template.storageType === 'system') {
       await this.filesService.deleteSystemFile(template.filePath);
     } else {
-      await this.filesService.deleteYCFile(template.filePath);
+      await this.filesService.deleteUserFile(template.filePath);
     }
 
     await this.templateModel.findByIdAndDelete(id);
@@ -334,7 +334,7 @@ export class TemplatesService {
       
       buffer = fs.readFileSync(filePath);
     } else {
-      buffer = await this.filesService.getYCFileBuffer(template.filePath);
+      buffer = await this.filesService.getUserFileBuffer(template.filePath);
     }
 
     return { buffer, name: `${template.name}.docx` };
@@ -346,7 +346,7 @@ export class TemplatesService {
       .select('filePath')
       .exec();
       
-    await Promise.all(templates.map(t => this.filesService.deleteYCFile(t.filePath)));
+    await Promise.all(templates.map(t => this.filesService.deleteUserFile(t.filePath)));
     await this.templateModel.deleteMany({ storageType: 'user', userId });
   }
 
@@ -420,7 +420,7 @@ export class TemplatesService {
     if (isSystem) {
       filePath = this.filesService.saveSystemFile(file, fileName);
     } else {
-      filePath = await this.filesService.saveYCFileTemplate(file, fileName, user);
+      filePath = await this.filesService.saveUserTemplateFile(file, fileName, user);
     }
 
     // generate template document

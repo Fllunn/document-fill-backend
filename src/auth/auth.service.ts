@@ -281,11 +281,11 @@ export class AuthService {
       throw ApiError.BadRequest('Неверный пароль')
 
     const templates = await this.templateModel.find({ storageType: 'user', userId }).select('filePath').exec()
-    await Promise.all(templates.map(t => this.filesService.deleteYCFile(t.filePath)))
+    await Promise.all(templates.map(t => this.filesService.deleteUserFile(t.filePath)))
     await this.templateModel.deleteMany({ storageType: 'user', userId })
 
     const photos = await this.photoModel.find({ userId }).select('filePath').exec()
-    await Promise.all(photos.map(p => this.filesService.deleteYCFile(p.filePath)))
+    await Promise.all(photos.map(p => this.filesService.deleteUserFile(p.filePath)))
     await this.photoModel.deleteMany({ userId })
 
     await this.UserModel.findByIdAndDelete(userId)
