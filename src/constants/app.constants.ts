@@ -20,6 +20,6 @@ export const VALUE_STRING_MAX_LENGTH = 1000;
 export const TABLE_ROWS_LIMIT = 25;
 export const TABLE_COLS_LIMIT = 25;
 export const PDF_CONVERSION_TIMEOUT_MS = 10_000;
-export const PDF_CONVERTER_IDLE_MS = 5 * 60_000; // выгружать LibreOffice после 5 минут простоя
+export const PDF_CONVERSION_MAX_MS = 120_000; // предел для админов и прогрева LibreOffice
 export const TOTAL_VALUES_MAX_LENGTH = 100_000;
 export const TABLE_COUNT_LIMIT = 20;
