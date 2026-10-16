@@ -43,7 +43,8 @@ services:
     # без ports: доступен только frontend по внутренней сети
     volumes:
       - storage:/app/storage
-    mem_limit: 1g # пик — конвертация в PDF (LibreOffice WASM)
+    init: true # tini: подбирает завершившиеся процессы soffice
+    mem_limit: 768m # node ~110 МБ + soffice ~210 МБ на время конвертации в PDF
     depends_on:
       mongo:
         condition: service_healthy

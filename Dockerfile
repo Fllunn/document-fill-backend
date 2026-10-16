@@ -1,6 +1,4 @@
-﻿FROM node:22-alpine AS base
-
-RUN apk add --no-cache libc6-compat
+﻿FROM node:22-bookworm-slim AS base
 
 WORKDIR /app
 
@@ -16,9 +14,21 @@ COPY . .
 
 RUN npm run build
 
-FROM node:22-alpine AS production
+FROM node:22-bookworm-slim AS production
 
-RUN apk add --no-cache libc6-compat
+# Официальный LibreOffice той же ветки 24.8, что была внутри прежнего WASM-конвертера:
+# PDF совпадают пиксель в пиксель, в т.ч. положение печатей и подписей (сверено 2026-10-16).
+# В 25.x плавающие картинки (печать в счёте) смещаются вверх. Шрифты — встроенные в сборку.
+ARG LO_VERSION=24.8.7.2
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl fontconfig libnss3 libdbus-1-3 libcups2 libxinerama1 libglib2.0-0 libcairo2 libsm6 libice6 libx11-xcb1 libxml2 libxslt1.1 \
+ && curl -fsSL "https://downloadarchive.documentfoundation.org/libreoffice/old/${LO_VERSION}/deb/x86_64/LibreOffice_${LO_VERSION}_Linux_x86-64_deb.tar.gz" -o /tmp/lo.tgz \
+ && mkdir /tmp/lo && tar xzf /tmp/lo.tgz -C /tmp/lo --strip-components=1 \
+ && dpkg -i /tmp/lo/DEBS/*.deb \
+ && ln -s /opt/libreoffice${LO_VERSION%.*.*}/program/soffice /usr/local/bin/soffice \
+ && apt-get purge -y curl && apt-get autoremove -y \
+ && rm -rf /tmp/lo /tmp/lo.tgz /var/lib/apt/lists/* \
+ && soffice --version
 
 WORKDIR /app
 
@@ -37,7 +47,4 @@ USER node
 
 EXPOSE 3033
 
-# --liftoff-only: без оптимизирующей перекомпиляции WASM (TurboFan).
-# Иначе первая конвертация в PDF после загрузки LibreOffice идёт ~80 с вместо ~1 с,
-# а скорость следующих конвертаций не меняется (замер 2026-10-16)
-CMD ["node", "--liftoff-only", "dist/main.js"]
+CMD ["node", "dist/main.js"]

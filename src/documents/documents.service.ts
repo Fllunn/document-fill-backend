@@ -1,31 +1,26 @@
 import { Model } from 'mongoose';
-import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import JSZip from 'jszip';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
-import { createWorkerConverter } from '@matbee/libreoffice-converter/server';
 import { Template } from 'src/templates/schemas/templates.schema';
 import { FilesService } from 'src/files/files.service';
 import { CryptoService } from './crypto.service';
 import { IDocumentMeta } from './interfaces/IDocumentMeta';
 import ApiError from 'src/exceptions/errors/api-error';
-import { IMAGE_ADMIN_SINGLE_MAX_SIZE, PDF_CONVERTER_IDLE_MS, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
+import { IMAGE_ADMIN_SINGLE_MAX_SIZE, PDF_CONVERSION_MAX_MS, SAVED_NAMES_LIMIT } from 'src/constants/app.constants';
 import { TelegramService } from 'src/telegram/telegram.service';
 import { UserClass } from 'src/user/schemas/user.schema';
+import { SofficeConverter, SofficeTimeoutError } from './soffice-converter';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
-type PdfConverter = Awaited<ReturnType<typeof createWorkerConverter>>;
-
 @Injectable()
-export class DocumentsService implements OnModuleDestroy {
-  // LibreOffice (WASM) занимает ~800 МБ, поэтому грузится только при запросе pdf
-  // и выгружается после PDF_CONVERTER_IDLE_MS простоя
-  private converterPromise: Promise<PdfConverter> | null = null;
-  private activeConversions = 0;
-  private idleTimer: NodeJS.Timeout | null = null;
+export class DocumentsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(DocumentsService.name);
+  private readonly converter = new SofficeConverter();
 
   constructor(
     @InjectModel(Template.name) private templateModel: Model<Template>,
@@ -35,8 +30,9 @@ export class DocumentsService implements OnModuleDestroy {
     @Optional() private telegramService: TelegramService,
   ) {}
 
-  async onModuleDestroy(): Promise<void> {
-    await this.destroyConverter();
+  onApplicationBootstrap(): void {
+    // в фоне, не задерживая старт приложения
+    this.converter.warmUp(PDF_CONVERSION_MAX_MS).catch((error) => this.logger.warn(`Прогрев LibreOffice не удался: ${error.message}`));
   }
 
   async create(templateId: string, values: Record<string, any>, name?: string, format: 'docx' | 'pdf' = 'docx', namePattern?: string, maxSize?: number, pdfTimeout?: number, rawValues?: Record<string, any>, isAdmin?: boolean, userId?: string): Promise<{ buffer: Buffer; name: string }> {
@@ -122,69 +118,17 @@ export class DocumentsService implements OnModuleDestroy {
     return { buffer, name: docName };
   }
 
-  private getConverter(): Promise<PdfConverter> {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
-    this.converterPromise ??= createWorkerConverter().catch((error) => {
-      this.converterPromise = null;
-      throw error;
-    });
-    return this.converterPromise;
-  }
-
-  private scheduleConverterUnload(): void {
-    if (this.activeConversions > 0) return;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => void this.destroyConverter(), PDF_CONVERTER_IDLE_MS);
-    this.idleTimer.unref();
-  }
-
-  private async destroyConverter(): Promise<void> {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
-    const converterPromise = this.converterPromise;
-    this.converterPromise = null;
-    if (!converterPromise) return;
-    try {
-      await (await converterPromise).destroy();
-    } catch {
-    }
-  }
-
+  // timeoutMs не задан (админ) — действует только общий предел PDF_CONVERSION_MAX_MS
   private async convertToPdf(docxBuffer: Buffer, timeoutMs?: number): Promise<Buffer> {
-    this.activeConversions++;
-    const releaseConverter = () => {
-      this.activeConversions--;
-      this.scheduleConverterUnload();
-    };
-
-    // таймаут считается после загрузки конвертера: холодный старт LibreOffice занимает несколько секунд
-    let converter: PdfConverter;
     try {
-      converter = await this.getConverter();
+      return await this.converter.convert(docxBuffer, timeoutMs ?? PDF_CONVERSION_MAX_MS);
     } catch (error) {
-      releaseConverter();
-      throw error;
+      if (error instanceof SofficeTimeoutError) {
+        throw ApiError.BadRequest('Превышено время генерации pdf. Возможно, вы пытались сгенерировать слишком большой по размеру файл');
+      }
+      this.logger.error(`Ошибка конвертации в pdf: ${(error as Error).message}`);
+      throw ApiError.Internal('Ошибка при создании pdf');
     }
-
-    // конвертация считается завершённой, только когда она действительно закончилась (даже после таймаута)
-    const convert = converter.convert(docxBuffer, { outputFormat: 'pdf' }).finally(releaseConverter);
-    if (!timeoutMs) {
-      const result = await convert;
-      return Buffer.from(result.data);
-    }
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(ApiError.BadRequest('Превышено время генерации pdf. Возможно, вы пытались сгенерировать слишком большой по размеру файл')),
-        timeoutMs,
-      ),
-    );
-    const result = await Promise.race([convert, timeout]);
-    return Buffer.from(result.data);
   }
 
   private async embedMeta(docxBuffer: Buffer, encryptedMeta: string): Promise<Buffer> {
